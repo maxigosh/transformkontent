@@ -16,6 +16,8 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from vidextract.extract import Options, run  # noqa: E402
+from vidextract.localize import LocalizeOptions  # noqa: E402
+from vidextract.localize import run as localize  # noqa: E402
 from vidextract.media import Encoder  # noqa: E402
 
 W, H, FPS = 360, 640, 30
@@ -98,6 +100,20 @@ def test_synthetic_roundtrip():
         for f in ("assets/plate.mp4", "assets/overlay.webm", "elements.json", "captions.json"):
             assert (out / f).exists(), f
         json.loads((out / "elements.json").read_text())
+
+        # localize: logo instead of the overlay, dubbed voice, captions rebuilt from the dub
+        logo = Path(tmp) / "logo.png"
+        cv2.imwrite(str(logo), np.full((60, 200, 4), 255, np.uint8))
+        tr = Path(tmp) / "tr.json"
+        tr.write_text(json.dumps([{"id": "p0", "text": "Uno, dos, tres!"}]))  # ONE TWO THREE = one phrase
+        localize(str(out), LocalizeOptions(logo=str(logo), translation=str(tr), tts="mock"), log=lambda *_: None)
+        loc = json.loads((out / "elements.json").read_text())
+        assert loc["layers"]["audio"]["src"] == "assets/voice_en.m4a"
+        assert [w["text"] for w in loc["layers"]["captions"]["words"]] == ["UNO", "DOS", "TRES"]
+        assert loc["layers"]["captions"]["words"][0]["start"] >= 0.3 - 1e-6
+        html = (out / "index.html").read_text()
+        assert 'id="logo"' in html and 'id="overlay"' not in html and "voice_en.m4a" in html
+        assert (out / "assets" / "logo.png").exists() and (out / "assets" / "voice_en.m4a").exists()
 
 
 if __name__ == "__main__":

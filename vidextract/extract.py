@@ -71,8 +71,14 @@ def run(src: str, out_dir: str, opt: Options = Options(), log=_log) -> dict:
     if cb:
         c0, c1 = int(cb[0] * H), int(np.ceil(cb[1] * H))
         det = CaptionDetector(W, H, (c0, c1))
-    cleaner = PlateCleaner(H)
+    cleaner = PlateCleaner(H, fps, layout.cuts)
     plate_enc = Encoder(assets / "plate.mp4", W, H, fps, "h264", "bgr24")
+
+    def write_plate(j: int, clean: np.ndarray) -> None:
+        plate_enc.write(clean)
+        if j in thumb_at:
+            cv2.imwrite(str(out / thumb_at[j]["thumb"]), cv2.resize(clean, (W // 3, H // 3)),
+                        [cv2.IMWRITE_JPEG_QUALITY, 85])
 
     log("pass B: separating layers (overlay matte, captions, clean plate)…")
     sigs, cap_frames = [], []
@@ -90,13 +96,13 @@ def run(src: str, out_dir: str, opt: Options = Options(), log=_log) -> dict:
             if cf is not None:
                 cap_frames.append(cf)
                 cap = (c0, mask)
-        clean = cleaner.clean(frame, ov, cap)
-        plate_enc.write(clean)
-        if i in thumb_at:
-            cv2.imwrite(str(out / thumb_at[i]["thumb"]), cv2.resize(clean, (W // 3, H // 3)), [cv2.IMWRITE_JPEG_QUALITY, 85])
+        for j, clean in cleaner.push(i, frame, ov, cap, (c0, c1) if det is not None else None):
+            write_plate(j, clean)
         if time.time() - tick > 10:
             tick = time.time()
             log(f"  frame {i}/{n_frames}")
+    for j, clean in cleaner.flush():
+        write_plate(j, clean)
     plate_enc.close()
     if ov_enc:
         ov_enc.close()

@@ -61,6 +61,19 @@ def _caption_css(style: dict, W: int, H: int) -> tuple[str, int, int]:
     return css, font_px, box_h
 
 
+def _logo_script(logo: dict | None) -> str:
+    if not logo:
+        return ""
+    beats = logo.get("beats") or [0.0]
+    return f"""
+      // Logo pops in at the start and again wherever the original overlay switched banners.
+      const LOGO_BEATS = {json.dumps(beats)};
+      LOGO_BEATS.forEach((t, i) => {{
+        tl.fromTo("#logo", {{ scale: i ? 0.82 : 0.4, rotation: i ? -4 : 0 }},
+          {{ scale: 1, rotation: 0, duration: 0.45, ease: "back.out(2.4)", immediateRender: i === 0 }}, t);
+      }});"""
+
+
 def build_html(m: dict, gsap_src: str) -> str:
     W, H = m["canvas"]["width"], m["canvas"]["height"]
     D = m["source"]["duration"]
@@ -75,7 +88,26 @@ def build_html(m: dict, gsap_src: str) -> str:
     clips = [f"""      <!-- layer 0: footage with overlay/captions painted out -->
       <video id="plate" class="clip" src="{layers["plate"]["src"]}" muted playsinline
         data-start="0" data-duration="{D}" data-track-index="0"></video>"""]
-    if ov:
+    logo = layers.get("logo")
+    css_logo = ""
+    if logo:
+        z = logo["zone_px"]
+        bw = round(W * logo.get("max_width_pct", 70) / 100)
+        bh = round((z[3] - z[1]) * logo.get("max_height_pct", 80) / 100)
+        css_logo = f"""
+      #logo {{
+        position: absolute;
+        left: {(W - bw) // 2}px;
+        top: {z[1] + ((z[3] - z[1]) - bh) // 2}px;
+        width: {bw}px;
+        height: {bh}px;
+        object-fit: contain;
+        z-index: 5;
+      }}"""
+        clips.append(f"""      <!-- layer 1: brand logo (replaces the extracted overlay; pops on its original rhythm) -->
+      <img id="logo" class="clip" src="{logo["src"]}" alt="logo"
+        data-start="0" data-duration="{D}" data-track-index="1" />""")
+    elif ov:
         z = ov["zone_px"]
         clips.append(f"""      <!-- layer 1: animated sponsor overlay, VP9 with alpha ({len(ov["states"])} states, see elements.json) -->
       <video id="overlay" class="clip" src="{ov["src"]}" muted playsinline
@@ -90,7 +122,7 @@ def build_html(m: dict, gsap_src: str) -> str:
                 f'      <div id="{w["id"]}" class="clip caption-word" data-start="{w["start"]}" data-duration="{dur}" '
                 f'data-track-index="2"{pop}><span class="caption-text">{html.escape(w["text"])}</span></div>')
     if audio:
-        clips.append(f"""      <!-- layer 3: original soundtrack -->
+        clips.append(f"""      <!-- layer 3: {audio.get("label", "original soundtrack")} -->
       <audio id="audio" src="{audio["src"]}" data-start="0" data-duration="{D}" data-track-index="3" data-volume="1"></audio>""")
 
     pop = (caps or {}).get("style", {}).get("pop_in", {}).get("scales") or [1]
@@ -112,12 +144,12 @@ def build_html(m: dict, gsap_src: str) -> str:
         pop.slice(1).forEach((s, i) => tl.to(word, {{ scale: s, duration: FRAME, ease: "none" }}, start + i * FRAME));
         if (pop[pop.length - 1] !== 1) tl.to(word, {{ scale: 1, duration: FRAME, ease: "none" }}, start + (pop.length - 1) * FRAME);
         EXIT.forEach((s, i) => tl.to(word, {{ scale: s, duration: FRAME, ease: "none" }}, end - (EXIT.length - i) * FRAME));
-      }});
+      }});{_logo_script(logo)}
       window.__timelines["main"] = tl;"""
 
     body = "\n".join(clips)
     return f"""<!doctype html>
-<html lang="ru">
+<html lang="{m.get("lang", "ru")}">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width={W}, height={H}" />
@@ -153,7 +185,7 @@ def build_html(m: dict, gsap_src: str) -> str:
         left: 0;
         width: 100%;
         z-index: 5;
-      }}{css_caption}
+      }}{css_logo}{css_caption}
     </style>
   </head>
   <body>
