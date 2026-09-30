@@ -142,6 +142,9 @@ def run(src: str, out_dir: str, opt: Options = Options(), log=_log) -> dict:
                     w.text, w.confidence = r["text"], r["confidence"]
                 words = merge_repeats(words)
         style = measure_style(words, W, H, fps)
+        if style["uppercase"]:  # OCR sometimes reads caps as lowercase (это/ЭТО look alike)
+            for w in words:
+                w.text = w.text.upper()
         captions = {
             "style": style,
             "words": [{
