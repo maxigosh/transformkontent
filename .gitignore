@@ -1,0 +1,10 @@
+node_modules/
+__pycache__/
+*.pyc
+.pytest_cache/
+# generated projects / media
+out/
+*_project/
+*.mp4
+*.webm
+*.m4a

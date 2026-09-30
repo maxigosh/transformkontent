@@ -1,0 +1,14 @@
+{
+  "name": "transformkontent",
+  "private": true,
+  "type": "module",
+  "description": "vidextract: decompose a short-form video into HyperFrames layers",
+  "scripts": {
+    "doctor": "hyperframes doctor"
+  },
+  "dependencies": {
+    "gsap": "3.14.2",
+    "hyperframes": "0.8.96",
+    "tesseract.js": "^5.1.1"
+  }
+}
