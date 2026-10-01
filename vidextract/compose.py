@@ -61,17 +61,27 @@ def _caption_css(style: dict, W: int, H: int) -> tuple[str, int, int]:
     return css, font_px, box_h
 
 
-def _logo_script(logo: dict | None) -> str:
+def _logo_script(logo: dict | None, duration: float) -> str:
     if not logo:
         return ""
     beats = logo.get("beats") or [0.0]
+    float_period = 2.4
+    shine_every = 4.0
     return f"""
-      // Logo pops in at the start and again wherever the original overlay switched banners.
+      // Logo: pops in at the start and again wherever the original overlay switched banners,
+      // floats gently, and a highlight sweeps across its shape every few seconds.
       const LOGO_BEATS = {json.dumps(beats)};
       LOGO_BEATS.forEach((t, i) => {{
-        tl.fromTo("#logo", {{ scale: i ? 0.82 : 0.4, rotation: i ? -4 : 0 }},
-          {{ scale: 1, rotation: 0, duration: 0.45, ease: "back.out(2.4)", immediateRender: i === 0 }}, t);
-      }});"""
+        tl.fromTo("#logo-wrap", {{ scale: i ? 0.84 : 0.3, rotation: i ? -5 : -12 }},
+          {{ scale: 1, rotation: 0, duration: i ? 0.45 : 0.7, ease: "back.out(2.4)", immediateRender: i === 0 }}, t);
+      }});
+      tl.fromTo("#logo-float", {{ y: -6 }}, {{ y: 6, duration: {float_period / 2}, ease: "sine.inOut",
+        repeat: {max(1, int(duration / (float_period / 2)))}, yoyo: true }}, 0);
+      tl.set("#logo-shine", {{ xPercent: -120 }}, 0);
+      for (let t = 1.0; t < {duration:.2f} - 1; t += {shine_every}) {{
+        tl.fromTo("#logo-shine", {{ xPercent: -120 }},
+          {{ xPercent: 320, duration: 0.9, ease: "power2.inOut", immediateRender: false }}, t);
+      }}"""
 
 
 def build_html(m: dict, gsap_src: str) -> str:
@@ -95,19 +105,53 @@ def build_html(m: dict, gsap_src: str) -> str:
         bw = round(W * logo.get("max_width_pct", 70) / 100)
         bh = round((z[3] - z[1]) * logo.get("max_height_pct", 80) / 100)
         css_logo = f"""
-      #logo {{
+      #logo-wrap {{
         position: absolute;
         left: {(W - bw) // 2}px;
         top: {z[1] + ((z[3] - z[1]) - bh) // 2}px;
         width: {bw}px;
         height: {bh}px;
-        object-fit: contain;
         z-index: 5;
+      }}
+      #logo-float {{
+        position: absolute;
+        inset: 0;
+        filter: drop-shadow(0 10px 18px rgba(0, 0, 0, 0.45));
+      }}
+      #logo-shape {{
+        position: absolute;
+        inset: 0;
+        overflow: hidden;
+        -webkit-mask: url("{logo["src"]}") center / contain no-repeat;
+        mask: url("{logo["src"]}") center / contain no-repeat;
+      }}
+      #logo {{
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+      }}
+      #logo-shine {{
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 30%;
+        height: 100%;
+        background: linear-gradient(105deg, rgba(255, 255, 255, 0) 0%, rgba(255, 255, 255, 0.7) 50%,
+          rgba(255, 255, 255, 0) 100%);
       }}"""
-        clips.append(f"""      <!-- layer 1: brand logo (replaces the extracted overlay; pops on its original rhythm) -->
-      <img id="logo" class="clip" src="{logo["src"]}" alt="logo"
-        data-start="0" data-duration="{D}" data-track-index="1" />""")
-    elif ov:
+        clips.append(f"""      <!-- layer 1: brand logo (replaces the extracted overlay): pops on the original banner rhythm,
+           floats, and a highlight sweeps across its shape -->
+      <div id="logo-wrap">
+        <div id="logo-float">
+          <div id="logo-shape">
+            <img id="logo" src="{logo["src"]}" alt="logo" />
+            <div id="logo-shine"></div>
+          </div>
+        </div>
+      </div>""")
+    elif ov and not ov.get("hidden"):
         z = ov["zone_px"]
         clips.append(f"""      <!-- layer 1: animated sponsor overlay, VP9 with alpha ({len(ov["states"])} states, see elements.json) -->
       <video id="overlay" class="clip" src="{ov["src"]}" muted playsinline
@@ -144,7 +188,7 @@ def build_html(m: dict, gsap_src: str) -> str:
         pop.slice(1).forEach((s, i) => tl.to(word, {{ scale: s, duration: FRAME, ease: "none" }}, start + i * FRAME));
         if (pop[pop.length - 1] !== 1) tl.to(word, {{ scale: 1, duration: FRAME, ease: "none" }}, start + (pop.length - 1) * FRAME);
         EXIT.forEach((s, i) => tl.to(word, {{ scale: s, duration: FRAME, ease: "none" }}, end - (EXIT.length - i) * FRAME));
-      }});{_logo_script(logo)}
+      }});{_logo_script(logo, D)}
       window.__timelines["main"] = tl;"""
 
     body = "\n".join(clips)

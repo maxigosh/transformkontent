@@ -32,13 +32,17 @@ def localize_main(argv: list[str]) -> int:
                    help="voice engine; mock = offline test tone (default elevenlabs, needs ELEVENLABS_API_KEY)")
     p.add_argument("--voice", help="ElevenLabs voice_id")
     p.add_argument("--tts-model", help="ElevenLabs model_id (default eleven_multilingual_v2)")
+    p.add_argument("--remove-overlay", action="store_true",
+                   help="remove the extracted overlay (sponsor banner) without putting a logo in its place")
+    p.add_argument("--no-ambience", action="store_true",
+                   help="with a dub: drop the original track entirely instead of keeping laughter between phrases")
     p.add_argument("--subtitles-only", action="store_true",
                    help="no dub: keep the original audio and time the translated captions to the original speech")
     a = p.parse_args(argv)
     localize(a.project, LocalizeOptions(
         logo=a.logo, lang=a.lang, lang_code=a.lang_code, translation=a.translation,
         translate_only=a.translate_only, tts=a.tts, voice=a.voice, tts_model=a.tts_model,
-        dub=not a.subtitles_only))
+        dub=not a.subtitles_only, remove_overlay=a.remove_overlay, keep_ambience=not a.no_ambience))
     return 0
 
 

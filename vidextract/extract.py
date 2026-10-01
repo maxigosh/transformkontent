@@ -90,7 +90,7 @@ def run(src: str, out_dir: str, opt: Options = Options(), log=_log) -> dict:
             alpha = matter.matte(zone)
             ov_enc.write(np.dstack([zone, alpha]))
             sigs.append(signature(zone, alpha))
-            ov = (z0, alpha)
+            ov = (z0, np.maximum(alpha, matter.specks(zone)))
         if det is not None:
             cf, mask = det.detect(i, frame[c0:c1])
             if cf is not None:

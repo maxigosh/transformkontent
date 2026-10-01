@@ -115,6 +115,8 @@ def test_synthetic_roundtrip():
         assert [w["text"] for w in sw] == ["UNO", "DOS", "TRES"]
         assert abs(sw[0]["start"] - 0.3) <= 2 / FPS and sw[-1]["end"] <= 3.3 + 1e-6
         assert 'id="overlay"' in (out / "index.html").read_text()
+        localize(str(out), LocalizeOptions(translation=str(tr), dub=False, remove_overlay=True), log=lambda *_: None)
+        assert 'id="overlay"' not in (out / "index.html").read_text()
 
         localize(str(out), LocalizeOptions(logo=str(logo), translation=str(tr), tts="mock"), log=lambda *_: None)
         loc = json.loads((out / "elements.json").read_text())

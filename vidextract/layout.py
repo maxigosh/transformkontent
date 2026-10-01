@@ -110,7 +110,7 @@ def scan(info: VideoInfo, progress=None) -> Layout:
     run = _run_around_peak(cv2.GaussianBlur(g_freq.mean(1)[:, None], (1, 9), 0).ravel(), 0.2)
     if run and overlay_strength > 0.01:
         a, b = run
-        pad = max(2, int(0.03 * sh))
+        pad = max(2, int(0.05 * sh))  # animated overlays swing past their resting box
         overlay_zone = (max(0, a - pad) / sh, min(sh, b + pad) / sh)
         smooth = np.convolve(np.r_[hue_hist[-8:], hue_hist, hue_hist[:8]], np.ones(9) / 9, "same")[8:-8]
         overlay_hue = int(smooth.argmax())

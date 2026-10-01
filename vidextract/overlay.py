@@ -82,6 +82,14 @@ class OverlayMatter:
         alpha = cv2.GaussianBlur(body.astype(np.float32), (0, 0), 0.9)
         return np.clip(alpha * 255.0, 0, 255).astype(np.uint8)
 
+    def specks(self, bgr: np.ndarray) -> np.ndarray:
+        """Every strongly coloured pixel of the overlay's hue, connected to the body or not
+        (stray particles of the overlay's animation). Used to clean the plate only."""
+        hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
+        dh = np.abs(hsv[..., 0].astype(np.int16) - self.hue)
+        dh = np.minimum(dh, 180 - dh)
+        return ((dh <= self.hue_tol) & (hsv[..., 1] > 110) & (hsv[..., 2] > 70)).astype(np.uint8) * 255
+
     def _touching(self, cand: np.ndarray, body: np.ndarray) -> np.ndarray:
         """Components of `cand` that touch `body` (and are not huge)."""
         if not cand.any():

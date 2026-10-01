@@ -25,12 +25,48 @@ class PlateCleaner:
         self.feather = max(1.0, frame_h * 0.0015)
         gm = max(5, int(frame_h * 0.014)) | 1   # outline edges and the soft drop shadow
         self.k_mem = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (gm, gm))
+        go = max(5, int(frame_h * 0.02)) | 1
+        self.k_overlay = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (go, go))
         self.cuts = set(cuts)
         self.max_age = max(1, int(memory_s * fps))
         self._last = None   # last uncovered pixels of the caption band
         self._age = None    # frames since each pixel was last uncovered
         self._queue: deque = deque()
         self._next = 0      # queue position of the next frame to emit
+
+    @staticmethod
+    def _push_pull(img: np.ndarray, valid: np.ndarray) -> np.ndarray:
+        """Fill invalid pixels with a smooth multi-scale interpolation of the valid ones.
+
+        Pull: build a pyramid of colour*weight and weight. Push: from the coarsest
+        level down, wherever a level has little weight take the upsampled coarser
+        estimate. The fill is as soft as the blurred background it continues, and
+        unlike Telea it does not drag hard wedges in from the hole's border."""
+        w = valid.astype(np.float32)
+        c = img.astype(np.float32) * w[..., None]
+        levels = []
+        while min(w.shape) > 4:
+            levels.append((c, w))
+            c, w = cv2.pyrDown(c), cv2.pyrDown(w)
+        est = c / np.maximum(w, 1e-6)[..., None]
+        for c, w in reversed(levels):
+            up = cv2.pyrUp(est, dstsize=(w.shape[1], w.shape[0]))
+            a = np.clip(w * 4.0, 0, 1)[..., None]          # trust a level where it has data
+            est = (c / np.maximum(w, 1e-6)[..., None]) * a + up * (1 - a)
+        return est
+
+    def _patch_smooth(self, img: np.ndarray, mask: np.ndarray) -> np.ndarray:
+        """Overlay areas: the footage there is a heavily blurred fill, so fill smoothly."""
+        h, w = mask.shape
+        sw, sh = max(8, int(w * self.scale)), max(8, int(h * self.scale))
+        small = cv2.resize(img, (sw, sh), interpolation=cv2.INTER_AREA).astype(np.float32)
+        hole = cv2.resize(mask, (sw, sh), interpolation=cv2.INTER_AREA) > 0
+        filled = self._push_pull(small, ~hole)
+        filled = cv2.GaussianBlur(filled, (0, 0), 2.0)
+        up = cv2.resize(filled, (w, h), interpolation=cv2.INTER_CUBIC)
+        soft = cv2.GaussianBlur(mask.astype(np.float32), (0, 0), self.feather * 4)
+        soft = np.clip(soft * 1.6, 0, 1)[..., None]
+        return np.clip(img * (1 - soft) + up * soft, 0, 255).astype(np.uint8)
 
     def _patch(self, img: np.ndarray, mask: np.ndarray, scale: float) -> np.ndarray:
         h, w = mask.shape
@@ -110,12 +146,17 @@ class PlateCleaner:
         out = frame.copy()
         if overlay is not None:
             y0, alpha = overlay
-            m = (alpha > 20).astype(np.uint8)
+            m = (alpha > 8).astype(np.uint8)
             if m.any():
+                # grow over glow, shadows and specks the matte left behind
+                m = cv2.dilate(m, self.k_overlay)
                 ys = np.nonzero(m.any(1))[0]
-                a = max(0, ys[0] - 16)
-                b = min(m.shape[0], ys[-1] + 17)
-                out[y0 + a:y0 + b] = self._patch(out[y0 + a:y0 + b], m[a:b], self.scale)
+                pad = self.k_overlay.shape[0]
+                a = max(0, y0 + ys[0] - pad)
+                b = min(out.shape[0], y0 + ys[-1] + 1 + pad)
+                full = np.zeros(out.shape[:2], np.uint8)
+                full[y0:y0 + m.shape[0]] = m
+                out[a:b] = self._patch_smooth(out[a:b], full[a:b])
         if band is not None:
             y0, y1 = band
             mask = np.zeros((y1 - y0, frame.shape[1]), np.uint8)
