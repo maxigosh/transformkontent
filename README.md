@@ -110,6 +110,16 @@ cd my_project && npx hyperframes render -o out_en.mp4
    из посимвольного выравнивания ElevenLabs, поэтому субтитры идут синхронно с новой речью.
    Русские слова сохраняются в `elements.json → captions.source_words`.
 
+**Только английские субтитры** (баннер и оригинальный звук остаются, ключ ElevenLabs не нужен):
+
+```bash
+python -m vidextract localize my_project --subtitles-only \
+    --translation examples/funpay_cliphub/translation.en.json
+```
+
+Здесь английские слова ставятся на время, когда звучала исходная русская фраза, и распределяются
+по длине. Если перевод длиннее оригинала, фраза может заходить в паузу перед следующей.
+
 `--tts mock` вместо ElevenLabs подставляет тон-заглушку. Так весь пайплайн проверяется без ключа.
 Готовый перевод примера: `examples/funpay_cliphub/translation.en.json`.
 

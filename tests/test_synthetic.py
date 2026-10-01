@@ -106,6 +106,16 @@ def test_synthetic_roundtrip():
         cv2.imwrite(str(logo), np.full((60, 200, 4), 255, np.uint8))
         tr = Path(tmp) / "tr.json"
         tr.write_text(json.dumps([{"id": "p0", "text": "Uno, dos, tres!"}]))  # ONE TWO THREE = one phrase
+        # subtitles only: original audio and overlay stay, words follow the original speech
+        audio_before = m["layers"]["audio"]
+        localize(str(out), LocalizeOptions(translation=str(tr), dub=False), log=lambda *_: None)
+        sub = json.loads((out / "elements.json").read_text())
+        assert sub["layers"]["audio"] == audio_before and "logo" not in sub["layers"]
+        sw = sub["layers"]["captions"]["words"]
+        assert [w["text"] for w in sw] == ["UNO", "DOS", "TRES"]
+        assert abs(sw[0]["start"] - 0.3) <= 2 / FPS and sw[-1]["end"] <= 3.3 + 1e-6
+        assert 'id="overlay"' in (out / "index.html").read_text()
+
         localize(str(out), LocalizeOptions(logo=str(logo), translation=str(tr), tts="mock"), log=lambda *_: None)
         loc = json.loads((out / "elements.json").read_text())
         assert loc["layers"]["audio"]["src"] == "assets/voice_en.m4a"

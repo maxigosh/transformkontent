@@ -32,6 +32,7 @@ class LocalizeOptions:
     voice: str | None = None
     tts_model: str | None = None
     min_gap: float = 0.08                # seconds of air between dubbed phrases
+    dub: bool = True                     # False: keep the original audio, only translate the captions
 
 
 def _log(msg: str) -> None:
@@ -90,7 +91,38 @@ def run(project: str, opt: LocalizeOptions, log=_log) -> dict:
         log(f"wrote {tr_path} — review/edit it, then run again without --translate-only")
         return m
 
-    # ---- 3. dub ---------------------------------------------------------------------------
+    # ---- 3. dub, or keep the original speech and only retime words to it ----------
+    voice_rel = None
+    if opt.dub:
+        words, voice_rel = _dub(proj, phrases, D, opt, log)
+    else:
+        words = _words_on_original_timing(phrases, D)
+        log(f"subtitles only: {len(words)} words placed on the original speech timing")
+
+    # ---- 4. one-word captions from the new timing---------------------------------------
+    new_words = []
+    for i, w in enumerate(words):
+        nxt = words[i + 1]["start"] if i + 1 < len(words) else w["end"] + 0.3
+        end = nxt if nxt - w["end"] < 0.3 else w["end"] + 0.12  # hold until the next word, like the source
+        new_words.append({"id": f"w{i}", "text": w["text"].strip(".,!?;:\"«»“”").upper() or w["text"],
+                          "start": w["start"], "end": round(min(end, D), 3)})
+    caps.setdefault("source_words", caps["words"])
+    caps["words"] = new_words
+    caps["lang"] = opt.lang_code
+
+    # ---- 5. audio: with a dub the original soundtrack is dropped, only the dub plays ---
+    if voice_rel:
+        layers["audio"] = {"src": voice_rel, "label": f"{opt.lang} voice-over ({opt.tts})"}
+    m["lang"] = opt.lang_code
+    (proj / "elements.json").write_text(json.dumps(m, ensure_ascii=False, indent=1))
+    (proj / f"captions.{opt.lang_code}.json").write_text(json.dumps(new_words, ensure_ascii=False, indent=1))
+    compose.write_project(proj, m)
+    log(f"done: {len(phrases)} phrases, {len(new_words)} caption words → {proj / 'index.html'}")
+    return m
+
+
+def _dub(proj: Path, phrases: list[dict], D: float, opt: LocalizeOptions, log) -> tuple[list[dict], str]:
+    """Voice each phrase in its time slot; returns word timings and the voice-over path."""
     if opt.tts == "mock":
         tts = MockTTS()
     else:
@@ -104,7 +136,7 @@ def run(project: str, opt: LocalizeOptions, log=_log) -> dict:
     words: list[dict] = []
     cursor = 0.0
     overflow = 0
-    for i, p in enumerate(phrases):
+    for p in phrases:
         text = p["text"].strip()
         if not text:
             continue
@@ -127,23 +159,26 @@ def run(project: str, opt: LocalizeOptions, log=_log) -> dict:
     _write_m4a(track, proj / voice_rel)
     if overflow:
         log(f"  {overflow} phrase(s) ran past their slot and pushed the next one later")
+    return words, voice_rel
 
-    # ---- 4. captions from the new voice ---------------------------------------------
-    new_words = []
-    for i, w in enumerate(words):
-        nxt = words[i + 1]["start"] if i + 1 < len(words) else w["end"] + 0.3
-        end = nxt if nxt - w["end"] < 0.3 else w["end"] + 0.12  # hold until the next word, like the source
-        new_words.append({"id": f"w{i}", "text": w["text"].strip(".,!?;:\"«»“”").upper() or w["text"],
-                          "start": w["start"], "end": round(min(end, D), 3)})
-    caps.setdefault("source_words", caps["words"])
-    caps["words"] = new_words
-    caps["lang"] = opt.lang_code
 
-    # ---- 5. audio: the original soundtrack is dropped, only the dub plays --------------
-    layers["audio"] = {"src": voice_rel, "label": f"{opt.lang} voice-over ({opt.tts})"}
-    m["lang"] = opt.lang_code
-    (proj / "elements.json").write_text(json.dumps(m, ensure_ascii=False, indent=1))
-    (proj / f"captions.{opt.lang_code}.json").write_text(json.dumps(new_words, ensure_ascii=False, indent=1))
-    compose.write_project(proj, m)
-    log(f"done: {len(phrases)} phrases, {len(new_words)} caption words → {proj / 'index.html'}")
-    return m
+def _words_on_original_timing(phrases: list[dict], D: float, min_word: float = 0.22) -> list[dict]:
+    """Spread each translated phrase over the time its original was spoken.
+
+    Words get time in proportion to their length; a phrase whose translation needs
+    more room than the original took may run on into the pause before the next one.
+    """
+    words: list[dict] = []
+    for p in phrases:
+        ew = p["text"].split()
+        if not ew:
+            continue
+        start = p["start"]
+        slot_end = min(D, p["slot_end"] if p["slot_end"] is not None else D)
+        end = max(p["end"], min(slot_end - 0.05, start + min_word * len(ew)))
+        end = max(end, start + 0.2)
+        weights = np.array([len(w) + 2 for w in ew], np.float64)
+        bounds = start + (end - start) * np.r_[0, np.cumsum(weights)] / weights.sum()
+        for w, a, b in zip(ew, bounds[:-1], bounds[1:]):
+            words.append({"text": w, "start": round(float(a), 3), "end": round(float(b), 3)})
+    return words
