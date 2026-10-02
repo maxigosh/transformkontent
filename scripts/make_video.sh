@@ -5,6 +5,7 @@
 #
 #   export ELEVENLABS_API_KEY=...            # never commit it
 #   scripts/make_video.sh input.webm out/result.mp4
+#   scripts/make_video.sh https://youtu.be/<id> out/result.mp4   # or a link (downloaded with yt-dlp)
 #
 # Settings (environment variables, all optional):
 #   LOGO=examples/plantogram/logo.png   logo image (PNG with or without transparency, or SVG)
@@ -21,17 +22,27 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 LOGO=${LOGO:-$ROOT/examples/plantogram/logo.png}
 VOICE=${VOICE:-YLbQE9U7P1K6rBNJWNSv}
 TTS=${TTS:-elevenlabs}
+[[ -n ${WORK:-} ]] && WORK_SET=1
 WORK=${WORK:-$ROOT/work/$(basename "${VIDEO%.*}")}
 TRANSLATION=${TRANSLATION:-}
 KEEP_AMBIENCE=${KEEP_AMBIENCE:-1}
 
 abs() { python3 -c 'import os,sys; print(os.path.abspath(sys.argv[1]))' "$1"; }
-VIDEO=$(abs "$VIDEO"); OUT=$(abs "$OUT"); LOGO=$(abs "$LOGO"); WORK=$(abs "$WORK")
+URL=""
+if [[ $VIDEO =~ ^https?:// ]]; then
+  URL=$VIDEO
+  slug=$(python3 -c 'import re,sys; u=sys.argv[1].split("?v=")[-1].split("/")[-1]; print(re.sub(r"[^A-Za-z0-9_-]+", "_", u)[:40] or "video")' "$URL")
+  [[ -n ${WORK_SET:-} ]] || WORK=$ROOT/work/$slug
+  [[ -n ${2:-} ]] || OUT=out/${slug}_en.mp4
+  VIDEO=$WORK.source.mp4
+fi
+OUT=$(abs "$OUT"); LOGO=$(abs "$LOGO"); WORK=$(abs "$WORK")
+[[ -z $URL ]] && VIDEO=$(abs "$VIDEO")
 [[ -n $TRANSLATION ]] && TRANSLATION=$(abs "$TRANSLATION")
 say() { printf '\n\033[1m==> %s\033[0m\n' "$*"; }
 die() { printf '\033[31merror:\033[0m %s\n' "$*" >&2; exit 1; }
 
-[[ -f $VIDEO ]] || die "no such video: $VIDEO"
+[[ -n $URL || -f $VIDEO ]] || die "no such video: $VIDEO (copy it to the server, e.g. scp, or pass a https:// link)"
 [[ -f $LOGO ]] || die "no such logo: $LOGO"
 if [[ $TTS == elevenlabs && -z ${ELEVENLABS_API_KEY:-} ]]; then
   die "set ELEVENLABS_API_KEY (or TTS=mock for a dry run)"
@@ -58,6 +69,15 @@ export PATH="$ROOT/.bin:$ROOT/node_modules/.bin:$PATH"
 export HYPERFRAMES_FFMPEG_PATH="$ROOT/.bin/ffmpeg" HYPERFRAMES_FFPROBE_PATH="$ROOT/.bin/ffprobe"
 export HYPERFRAMES_NO_TELEMETRY=1 HYPERFRAMES_NO_UPDATE_CHECK=1
 if [[ -z ${HYPERFRAMES_BROWSER_PATH:-} ]]; then hyperframes browser ensure; fi
+
+if [[ -n $URL && ( ${FRESH:-0} == 1 || ! -f $VIDEO ) ]]; then
+  say "downloading $URL"
+  pip install -q -U yt-dlp
+  mkdir -p "$(dirname "$VIDEO")"
+  yt-dlp -f "bv*+ba/b" --merge-output-format mp4 --ffmpeg-location "$ROOT/.bin/ffmpeg" \
+    -o "$VIDEO" --force-overwrites "$URL" \
+    || die "download failed (YouTube may block server IPs) — copy the file over with scp instead"
+fi
 
 if [[ ${FRESH:-0} == 1 || ! -f $WORK/elements.json ]]; then
   say "1/3 extracting layers from $(basename "$VIDEO") (takes ~5-10 min per minute of video)"

@@ -91,8 +91,11 @@ export ELEVENLABS_API_KEY=...        # ключ ElevenLabs, в репозито�
 
 # пример из этого репозитория: готовый перевод, логотип PlantOgram, голос YLbQE9U7P1K6rBNJWNSv
 TRANSLATION=examples/funpay_cliphub/translation.en.json \
-  scripts/make_video.sh funpay_cliphub.webm out/plantogram_en.mp4
+  scripts/make_video.sh https://youtu.be/5j5fpDyZQXc out/plantogram_en.mp4
 ```
+
+Вместо ссылки можно передать путь к файлу на сервере (скопировать его туда, например, через `scp`).
+Ссылки скачиваются через yt-dlp. Если YouTube блокирует IP сервера, остаётся вариант с файлом.
 
 Скрипт сам ставит зависимости (`.venv`, `npm install`, Chrome для рендера), разбирает ролик, ставит
 логотип, вырезает голос (смех зала остаётся), озвучивает по-английски через ElevenLabs, делает
