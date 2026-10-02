@@ -79,6 +79,31 @@ npx hyperframes render -o out.mp4
 `npx hyperframes snapshot --against ролик.webm` показывает пары «рендер | оригинал», которые совпадают
 по баннеру, подложке, позиции и стилю субтитров.
 
+## Запуск на сервере одной командой
+
+Нужен Linux-сервер с Python ≥ 3.10, Node.js ≥ 22 и доступом в интернет (PyPI, npm, `api.elevenlabs.io`,
+`raw.githubusercontent.com` для OCR-модели, `api.anthropic.com` для автоперевода).
+
+```bash
+git clone -b claude/blissful-mayer-51uhyk https://github.com/maxigosh/transformkontent.git
+cd transformkontent
+export ELEVENLABS_API_KEY=...        # ключ ElevenLabs, в репозиторий не коммитить
+
+# пример из этого репозитория: готовый перевод, логотип PlantOgram, голос YLbQE9U7P1K6rBNJWNSv
+TRANSLATION=examples/funpay_cliphub/translation.en.json \
+  scripts/make_video.sh funpay_cliphub.webm out/plantogram_en.mp4
+```
+
+Скрипт сам ставит зависимости (`.venv`, `npm install`, Chrome для рендера), разбирает ролик, ставит
+логотип, вырезает голос (смех зала остаётся), озвучивает по-английски через ElevenLabs, делает
+английские субтитры и рендерит MP4. Для другого ролика без готового перевода нужен ещё
+`ANTHROPIC_API_KEY`: перевод сделает Claude, его можно поправить в `work/<ролик>/translation.en.json`
+и перезапустить скрипт (разбор ролика переиспользуется).
+
+Переменные: `LOGO`, `VOICE`, `TRANSLATION`, `TTS=mock` (пробный прогон без ElevenLabs),
+`KEEP_AMBIENCE=0` (без смеха зала), `FRESH=1` (разобрать ролик заново). На 91-секундном ролике разбор
+занимает ~10 мин, рендер ~7 мин на 4 ядрах.
+
 ## Локализация: свой логотип, перевод, озвучка ElevenLabs
 
 Вторая команда берёт уже разобранный проект и переделывает его:

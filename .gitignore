@@ -8,3 +8,6 @@ out/
 *.mp4
 *.webm
 *.m4a
+.venv/
+.bin/
+work/

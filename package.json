@@ -7,6 +7,7 @@
     "doctor": "hyperframes doctor"
   },
   "dependencies": {
+    "@ffprobe-installer/ffprobe": "^2.1.2",
     "gsap": "3.14.2",
     "hyperframes": "0.8.96",
     "tesseract.js": "^5.1.1"
