@@ -61,26 +61,121 @@ def _caption_css(style: dict, W: int, H: int) -> tuple[str, int, int]:
     return css, font_px, box_h
 
 
+def _logo_markup(logo: dict, W: int) -> tuple[str, str]:
+    z = logo["zone_px"]
+    zone_h = z[3] - z[1]
+    max_w = W * logo.get("max_width_pct", 80) / 100
+    max_h = zone_h * logo.get("max_height_pct", 62) / 100
+    aspect = logo.get("aspect") or max_w / max_h
+    bw = round(min(max_w, max_h * aspect))
+    bh = round(bw / aspect)
+    left, top = (W - bw) // 2, z[1] + (zone_h - bh) // 2
+    mark, word = logo.get("mark"), logo.get("word")
+    if mark and word:
+        parts = f"""
+            <div id="logo-mark" style="left: {mark["left"] * 100:.3f}%; width: {mark["width"] * 100:.3f}%">
+              <div id="logo-mark-spin"><img src="{mark["src"]}" alt="" /></div>
+            </div>
+            <div id="logo-word-clip" style="left: {word["left"] * 100:.3f}%; width: {word["width"] * 100:.3f}%">
+              <img id="logo-word" src="{word["src"]}" alt="" />
+            </div>"""
+    else:
+        parts = f"""
+            <div id="logo-mark" style="left: 0; width: 100%">
+              <div id="logo-mark-spin"><img src="{logo["src"]}" alt="" /></div>
+            </div>"""
+    css = f"""
+      #logo-wrap {{
+        position: absolute;
+        left: {left}px;
+        top: {top}px;
+        width: {bw}px;
+        height: {bh}px;
+        z-index: 5;
+      }}
+      #logo-float {{
+        position: absolute;
+        inset: 0;
+        filter: drop-shadow(0 0 3px rgba(255, 255, 255, 0.55)) drop-shadow(0 0 16px rgba(255, 255, 255, 0.28))
+          drop-shadow(0 8px 16px rgba(0, 0, 0, 0.5));
+      }}
+      #logo-mark,
+      #logo-word-clip {{
+        position: absolute;
+        top: 0;
+        height: 100%;
+      }}
+      #logo-word-clip {{
+        overflow: hidden;
+      }}
+      #logo-mark-spin,
+      #logo-mark-spin img,
+      #logo-word {{
+        display: block;
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+      }}
+      #logo-shine-layer {{
+        position: absolute;
+        inset: 0;
+        overflow: hidden;
+        pointer-events: none;
+        -webkit-mask: url("{logo["src"]}") center / 100% 100% no-repeat;
+        mask: url("{logo["src"]}") center / 100% 100% no-repeat;
+      }}
+      #logo-shine {{
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 22%;
+        height: 100%;
+        background: linear-gradient(105deg, rgba(255, 255, 255, 0) 0%, rgba(255, 255, 255, 0.65) 50%,
+          rgba(255, 255, 255, 0) 100%);
+      }}"""
+    markup = f"""      <!-- layer 1: brand logo (replaces the extracted overlay): the mark rolls in, the wordmark
+           slides out, the logo floats, a highlight sweeps across it, and the mark spins on the
+           original banner-change rhythm -->
+      <div id="logo-wrap">
+        <div id="logo-float">{parts}
+          <div id="logo-shine-layer"><div id="logo-shine"></div></div>
+        </div>
+      </div>"""
+    return css, markup
+
+
 def _logo_script(logo: dict | None, duration: float) -> str:
     if not logo:
         return ""
     beats = logo.get("beats") or [0.0]
-    float_period = 2.4
-    shine_every = 4.0
+    split = bool(logo.get("mark") and logo.get("word"))
+    n_float = max(1, int(duration / 1.2))
+    n_wobble = max(1, int(duration / 1.6))
+    intro = """
+      // intro: the mark rolls in, the wordmark slides out from behind it
+      tl.fromTo("#logo-mark-spin", { scale: 0, rotation: -300 },
+        { scale: 1, rotation: 0, duration: 0.9, ease: "back.out(1.6)" }, 0);
+      tl.fromTo("#logo-word", { xPercent: -105 }, { xPercent: 0, duration: 0.75, ease: "power3.out" }, 0.5);""" \
+        if split else """
+      tl.fromTo("#logo-mark-spin", { scale: 0.3, rotation: -12 },
+        { scale: 1, rotation: 0, duration: 0.7, ease: "back.out(2.4)" }, 0);"""
     return f"""
-      // Logo: pops in at the start and again wherever the original overlay switched banners,
-      // floats gently, and a highlight sweeps across its shape every few seconds.
-      const LOGO_BEATS = {json.dumps(beats)};
-      LOGO_BEATS.forEach((t, i) => {{
-        tl.fromTo("#logo-wrap", {{ scale: i ? 0.84 : 0.3, rotation: i ? -5 : -12 }},
-          {{ scale: 1, rotation: 0, duration: i ? 0.45 : 0.7, ease: "back.out(2.4)", immediateRender: i === 0 }}, t);
+      // ---- logo ----{intro}
+      // on every former banner change: the mark pops and spins once
+      {json.dumps([t for t in beats if t >= 1.6])}.forEach((t) => {{
+        tl.fromTo("#logo-mark-spin", {{ scale: 0.8, rotation: -360 }},
+          {{ scale: 1, rotation: 0, duration: 0.8, ease: "back.out(1.8)", immediateRender: false }}, t);
       }});
-      tl.fromTo("#logo-float", {{ y: -6 }}, {{ y: 6, duration: {float_period / 2}, ease: "sine.inOut",
-        repeat: {max(1, int(duration / (float_period / 2)))}, yoyo: true }}, 0);
+      // idle: the whole logo floats, the mark sways a little
+      tl.fromTo("#logo-float", {{ y: -6 }}, {{ y: 6, duration: 1.2, ease: "sine.inOut",
+        repeat: {n_float}, yoyo: true }}, 0);
+      tl.fromTo("#logo-mark", {{ rotation: -4 }}, {{ rotation: 4, duration: 1.6, ease: "sine.inOut",
+        repeat: {n_wobble}, yoyo: true }}, 1.0);
+      // a highlight sweeps across the logo's shape every few seconds
       tl.set("#logo-shine", {{ xPercent: -120 }}, 0);
-      for (let t = 1.0; t < {duration:.2f} - 1; t += {shine_every}) {{
+      for (let t = 1.6; t < {duration:.2f} - 1; t += 4) {{
         tl.fromTo("#logo-shine", {{ xPercent: -120 }},
-          {{ xPercent: 320, duration: 0.9, ease: "power2.inOut", immediateRender: false }}, t);
+          {{ xPercent: 420, duration: 1.0, ease: "power2.inOut", immediateRender: false }}, t);
       }}"""
 
 
@@ -101,56 +196,8 @@ def build_html(m: dict, gsap_src: str) -> str:
     logo = layers.get("logo")
     css_logo = ""
     if logo:
-        z = logo["zone_px"]
-        bw = round(W * logo.get("max_width_pct", 70) / 100)
-        bh = round((z[3] - z[1]) * logo.get("max_height_pct", 80) / 100)
-        css_logo = f"""
-      #logo-wrap {{
-        position: absolute;
-        left: {(W - bw) // 2}px;
-        top: {z[1] + ((z[3] - z[1]) - bh) // 2}px;
-        width: {bw}px;
-        height: {bh}px;
-        z-index: 5;
-      }}
-      #logo-float {{
-        position: absolute;
-        inset: 0;
-        filter: drop-shadow(0 10px 18px rgba(0, 0, 0, 0.45));
-      }}
-      #logo-shape {{
-        position: absolute;
-        inset: 0;
-        overflow: hidden;
-        -webkit-mask: url("{logo["src"]}") center / contain no-repeat;
-        mask: url("{logo["src"]}") center / contain no-repeat;
-      }}
-      #logo {{
-        position: absolute;
-        inset: 0;
-        width: 100%;
-        height: 100%;
-        object-fit: contain;
-      }}
-      #logo-shine {{
-        position: absolute;
-        top: 0;
-        left: 0;
-        width: 30%;
-        height: 100%;
-        background: linear-gradient(105deg, rgba(255, 255, 255, 0) 0%, rgba(255, 255, 255, 0.7) 50%,
-          rgba(255, 255, 255, 0) 100%);
-      }}"""
-        clips.append(f"""      <!-- layer 1: brand logo (replaces the extracted overlay): pops on the original banner rhythm,
-           floats, and a highlight sweeps across its shape -->
-      <div id="logo-wrap">
-        <div id="logo-float">
-          <div id="logo-shape">
-            <img id="logo" src="{logo["src"]}" alt="logo" />
-            <div id="logo-shine"></div>
-          </div>
-        </div>
-      </div>""")
+        css_logo, markup = _logo_markup(logo, W)
+        clips.append(markup)
     elif ov and not ov.get("hidden"):
         z = ov["zone_px"]
         clips.append(f"""      <!-- layer 1: animated sponsor overlay, VP9 with alpha ({len(ov["states"])} states, see elements.json) -->

@@ -8,7 +8,6 @@ from the new voice's timing.
 from __future__ import annotations
 
 import json
-import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -16,6 +15,7 @@ from pathlib import Path
 import numpy as np
 
 from . import compose
+from . import logo as logo_mod
 from .media import ffmpeg_exe
 from .translate import load_translation, phrases_from_words, translate_claude
 from .tts import SR, ElevenLabsTTS, MockTTS, synthesize_fitted
@@ -59,16 +59,16 @@ def run(project: str, opt: LocalizeOptions, log=_log) -> dict:
     # ---- 1. logo instead of the extracted overlay ---------------------------------
     if opt.logo:
         src = Path(opt.logo)
-        dst = proj / "assets" / f"logo{src.suffix.lower()}"
-        shutil.copy(src, dst)
+        prepared = logo_mod.prepare(src, proj / "assets")
         ov = layers.get("overlay")
         zone = ov["zone_px"] if ov else [0, int(H * 0.06), W, int(H * 0.26)]
         beats = [0.0]
         if ov:
             beats += [seg["start"] for seg in ov["timeline"]
                       if seg["kind"] == "state" and seg["start"] > 0.5]
-        layers["logo"] = {"src": f"assets/{dst.name}", "zone_px": zone, "beats": sorted(set(beats))}
-        log(f"logo: {src.name} in zone y={zone[1]}..{zone[3]}, {len(beats)} pop beats")
+        layers["logo"] = {**prepared, "zone_px": zone, "beats": sorted(set(beats))}
+        parts = "mark + wordmark animated separately" if prepared["mark"] else "single piece"
+        log(f"logo: {src.name} in zone y={zone[1]}..{zone[3]}, {parts}, {len(beats)} pop beats")
 
     ov = layers.get("overlay")
     if ov:

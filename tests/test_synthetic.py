@@ -124,7 +124,7 @@ def test_synthetic_roundtrip():
         assert [w["text"] for w in loc["layers"]["captions"]["words"]] == ["UNO", "DOS", "TRES"]
         assert loc["layers"]["captions"]["words"][0]["start"] >= 0.3 - 1e-6
         html = (out / "index.html").read_text()
-        assert 'id="logo"' in html and 'id="overlay"' not in html and "voice_en.m4a" in html
+        assert "logo-wrap" in html and 'id="overlay"' not in html and "voice_en.m4a" in html
         assert (out / "assets" / "logo.png").exists() and (out / "assets" / "voice_en.m4a").exists()
 
 
