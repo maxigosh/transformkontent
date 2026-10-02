@@ -44,8 +44,10 @@ die() { printf '\033[31merror:\033[0m %s\n' "$*" >&2; exit 1; }
 
 [[ -n $URL || -f $VIDEO ]] || die "no such video: $VIDEO (copy it to the server, e.g. scp, or pass a https:// link)"
 [[ -f $LOGO ]] || die "no such logo: $LOGO"
-if [[ $TTS == elevenlabs && -z ${ELEVENLABS_API_KEY:-} ]]; then
-  die "set ELEVENLABS_API_KEY (or TTS=mock for a dry run)"
+if [[ $TTS == elevenlabs ]]; then
+  [[ -n ${ELEVENLABS_API_KEY:-} ]] || die "set ELEVENLABS_API_KEY (or TTS=mock for a dry run)"
+  (LC_ALL=C; [[ $ELEVENLABS_API_KEY =~ ^[A-Za-z0-9_-]{20,}$ ]]) \
+    || die "ELEVENLABS_API_KEY does not look like a key (expected something like sk_..., not the placeholder text)"
 fi
 if [[ -z $TRANSLATION && -z ${ANTHROPIC_API_KEY:-} && ! -f $WORK/translation.en.json ]]; then
   die "set ANTHROPIC_API_KEY for automatic translation, or TRANSLATION=path/to/translation.json"

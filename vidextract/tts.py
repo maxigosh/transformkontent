@@ -75,6 +75,8 @@ class ElevenLabsTTS:
         self.api_key = api_key or os.environ.get("ELEVENLABS_API_KEY")
         if not self.api_key:
             raise RuntimeError("ELEVENLABS_API_KEY is not set")
+        if not self.api_key.isascii() or " " in self.api_key:
+            raise RuntimeError("ELEVENLABS_API_KEY does not look like a key (placeholder text?)")
         self.voice, self.model = voice, model
         self.stability, self.similarity = stability, similarity
 
