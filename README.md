@@ -91,7 +91,7 @@ export ELEVENLABS_API_KEY=...        # ключ ElevenLabs, в репозито�
 
 # пример из этого репозитория: готовый перевод, логотип PlantOgram, голос YLbQE9U7P1K6rBNJWNSv
 TRANSLATION=examples/funpay_cliphub/translation.en.json \
-  scripts/make_video.sh https://youtu.be/5j5fpDyZQXc out/plantogram_en.mp4
+  scripts/make_video.sh examples/funpay_cliphub/source.webm out/plantogram_en.mp4
 ```
 
 Вместо ссылки можно передать путь к файлу на сервере (скопировать его туда, например, через `scp`).
