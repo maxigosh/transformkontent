@@ -8,6 +8,7 @@ of output so the whole pipeline can be exercised offline.
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import os
 import subprocess
@@ -100,6 +101,25 @@ class ElevenLabsTTS:
         words = words_from_alignment(al["characters"], al["character_start_times_seconds"],
                                      al["character_end_times_seconds"])
         return base64.b64decode(data["audio_base64"]), words
+
+
+class CachedTTS:
+    """Keeps every synthesized take on disk, so re-running a project re-uses the
+    same audio instead of paying for (and slightly changing) it again."""
+
+    def __init__(self, tts, folder, key: str):
+        self.tts, self.folder, self.key = tts, folder, key
+        folder.mkdir(parents=True, exist_ok=True)
+
+    def speak(self, text: str, speed: float = 1.0) -> tuple[bytes, list[dict]]:
+        h = hashlib.sha256(json.dumps([self.key, text, round(speed, 3)]).encode()).hexdigest()[:24]
+        audio, meta = self.folder / f"{h}.bin", self.folder / f"{h}.json"
+        if audio.exists() and meta.exists():
+            return audio.read_bytes(), json.loads(meta.read_text())
+        data, words = self.tts.speak(text, speed)
+        audio.write_bytes(data)
+        meta.write_text(json.dumps(words))
+        return data, words
 
 
 class MockTTS:

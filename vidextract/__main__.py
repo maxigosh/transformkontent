@@ -24,6 +24,11 @@ def localize_main(argv: list[str]) -> int:
                     "with ElevenLabs; captions are rebuilt from the new voice's timing.")
     p.add_argument("project", help="project directory produced by `vidextract <video> -o <dir>`")
     p.add_argument("--logo", help="logo image (PNG/SVG/WebP with transparency) to replace the overlay")
+    p.add_argument("--logo-style", choices=["ticker", "float"], default="ticker",
+                   help="ticker: tilted band with a running brand/site ticker that turns like a 3D box on the "
+                        "original banner rhythm (default); float: the logo itself rolls in and floats")
+    p.add_argument("--brand", help="ticker text: brand name (without it the wordmark image runs instead)")
+    p.add_argument("--brand-url", help="ticker text: site address, e.g. example.com")
     p.add_argument("--lang", default="English", help="target language name (default English)")
     p.add_argument("--lang-code", default="en", help="short code used in file names (default en)")
     p.add_argument("--translation", help="use this translation JSON ([{id, text}]) instead of calling Claude")
@@ -40,9 +45,24 @@ def localize_main(argv: list[str]) -> int:
                    help="no dub: keep the original audio and time the translated captions to the original speech")
     a = p.parse_args(argv)
     localize(a.project, LocalizeOptions(
-        logo=a.logo, lang=a.lang, lang_code=a.lang_code, translation=a.translation,
+        logo=a.logo, logo_style=a.logo_style, brand=a.brand, brand_url=a.brand_url, lang=a.lang, lang_code=a.lang_code, translation=a.translation,
         translate_only=a.translate_only, tts=a.tts, voice=a.voice, tts_model=a.tts_model,
         dub=not a.subtitles_only, remove_overlay=a.remove_overlay, keep_ambience=not a.no_ambience))
+    return 0
+
+
+def restyle_main(argv: list[str]) -> int:
+    from .localize import LocalizeOptions, restyle
+
+    p = argparse.ArgumentParser(
+        prog="vidextract restyle",
+        description="Change only the brand block of a localized project (no new translation or dub).")
+    p.add_argument("project")
+    p.add_argument("--logo-style", choices=["ticker", "float"], default="ticker")
+    p.add_argument("--brand", help="ticker text: brand name")
+    p.add_argument("--brand-url", help="ticker text: site address")
+    a = p.parse_args(argv)
+    restyle(a.project, LocalizeOptions(logo_style=a.logo_style, brand=a.brand, brand_url=a.brand_url))
     return 0
 
 
@@ -50,6 +70,8 @@ def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     if argv and argv[0] == "localize":
         return localize_main(argv[1:])
+    if argv and argv[0] == "restyle":
+        return restyle_main(argv[1:])
     p = argparse.ArgumentParser(
         prog="vidextract",
         description="Decompose a short-form video into layers (clean footage, animated overlay with alpha, "

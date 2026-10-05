@@ -18,12 +18,15 @@ from . import compose
 from . import logo as logo_mod
 from .media import ffmpeg_exe
 from .translate import load_translation, phrases_from_words, translate_claude
-from .tts import SR, ElevenLabsTTS, MockTTS, synthesize_fitted
+from .tts import SR, CachedTTS, ElevenLabsTTS, MockTTS, synthesize_fitted
 
 
 @dataclass
 class LocalizeOptions:
     logo: str | None = None
+    logo_style: str = "ticker"           # ticker: turning green band with a running ticker | float: animated logo
+    brand: str | None = None             # ticker text, e.g. the brand name
+    brand_url: str | None = None         # ticker text, e.g. the site
     lang: str = "English"
     lang_code: str = "en"
     translation: str | None = None       # use this translation file instead of calling Claude
@@ -35,6 +38,22 @@ class LocalizeOptions:
     dub: bool = True                     # False: keep the original audio, only translate the captions
     remove_overlay: bool = False         # drop the extracted overlay (the clean plate has it painted out)
     keep_ambience: bool = True           # with a dub: keep the original track between phrases (laughter, room)
+
+
+def restyle(project: str, opt: LocalizeOptions, log=None) -> dict:
+    """Change only the brand block (style and ticker text) of a localized project and
+    rewrite index.html; audio, captions and the dub stay as they are."""
+    log = log or _log
+    proj = Path(project)
+    m = json.loads((proj / "elements.json").read_text())
+    logo = m["layers"].get("logo")
+    if not logo:
+        raise SystemExit("this project has no logo yet: run `vidextract localize --logo ...` first")
+    logo.update(style=opt.logo_style, brand=opt.brand, url=opt.brand_url)
+    (proj / "elements.json").write_text(json.dumps(m, ensure_ascii=False, indent=1))
+    compose.write_project(proj, m)
+    log(f"logo restyled: {opt.logo_style}" + (f" ({opt.brand} / {opt.brand_url})" if opt.brand or opt.brand_url else ""))
+    return m
 
 
 def _log(msg: str) -> None:
@@ -66,9 +85,10 @@ def run(project: str, opt: LocalizeOptions, log=_log) -> dict:
         if ov:
             beats += [seg["start"] for seg in ov["timeline"]
                       if seg["kind"] == "state" and seg["start"] > 0.5]
-        layers["logo"] = {**prepared, "zone_px": zone, "beats": sorted(set(beats))}
+        layers["logo"] = {**prepared, "zone_px": zone, "beats": sorted(set(beats)), "style": opt.logo_style,
+                          "brand": opt.brand, "url": opt.brand_url}
         parts = "mark + wordmark animated separately" if prepared["mark"] else "single piece"
-        log(f"logo: {src.name} in zone y={zone[1]}..{zone[3]}, {parts}, {len(beats)} pop beats")
+        log(f"logo ({opt.logo_style}): {src.name} in zone y={zone[1]}..{zone[3]}, {parts}, {len(beats)} pop beats")
 
     ov = layers.get("overlay")
     if ov:
@@ -150,6 +170,7 @@ def _dub(proj: Path, phrases: list[dict], D: float, opt: LocalizeOptions, log,
         if opt.tts_model:
             kw["model"] = opt.tts_model
         tts = ElevenLabsTTS(**kw)
+        tts = CachedTTS(tts, proj / "assets" / "tts_cache", f"{tts.voice}|{tts.model}")
     track = np.zeros(int((D + 1.0) * SR), np.float32)
     words: list[dict] = []
     cursor = 0.0

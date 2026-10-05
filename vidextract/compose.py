@@ -179,6 +179,199 @@ def _logo_script(logo: dict | None, duration: float) -> str:
       }}"""
 
 
+TICKER_GREEN = "#2f7a3a"
+
+
+def _ticker_items(logo: dict, url_first: bool) -> str:
+    """One loop of ticker content: brand name and site separated by the mark
+    (the wordmark stands in when no brand text was given). Repeated pictures are
+    CSS backgrounds so the renderer sees each image file once."""
+    sep = '<span class="tk-sep"></span>' if logo.get("mark") else '<span class="tk-dot"></span>'
+    brand, url = logo.get("brand"), logo.get("url")
+    if brand or url:
+        words = [w for w in (brand, url) if w]
+        if url_first:
+            words.reverse()
+        cells = [f'<span class="tk-text">{html.escape(w)}</span>' for w in words]
+    else:
+        cells = ['<span class="tk-word"></span>']
+    one = "".join(c + sep for c in cells)
+    return one * 3  # wider than the band so one half always covers it
+
+
+def _ticker_markup(logo: dict, W: int) -> tuple[str, str]:
+    """A tilted green band whose faces sit on a 3D box: a running ticker,
+    the logo (the wordmark when the mark already sits in the badge), the ticker
+    again, the logo again. The box turns to the next
+    face on the original banner's rhythm, the way the sponsor banner did."""
+    z = logo["zone_px"]
+    bw, bh = round(W * 0.86), round(W * 0.14)
+    cx, cy = W // 2, (z[1] + z[3]) // 2
+    badge = round(bh * 1.45)
+    mark = logo.get("mark")
+    word = logo.get("word")
+    word_src = word["src"] if word else logo["src"]
+    word_aspect = (logo.get("aspect") or 3) * (word["width"] if word else 1)
+    half = [_ticker_items(logo, url_first=False), _ticker_items(logo, url_first=True)]
+    faces = []
+    for i in range(4):
+        if i % 2 == 0:
+            loop = half[i // 2]
+            body = f'<div class="tk-track" id="tk-track-{i}"><div class="tk-half">{loop}</div><div class="tk-half">{loop}</div></div>'
+        else:
+            body = '<span class="tk-logo"></span>'
+        faces.append(f'          <div class="tk-face tk-face-{"run" if i % 2 == 0 else "logo"}" '
+                     f'style="transform: rotateY({i * 90}deg) translateZ({bw / 2:.1f}px)">{body}</div>')
+    badge_html = (f'\n        <div id="tk-badge"><img src="{mark["src"]}" alt="" /></div>' if mark else "")
+    css = f"""
+      #tk-tilt {{
+        position: absolute;
+        left: {cx - bw // 2}px;
+        top: {cy - bh // 2}px;
+        width: {bw}px;
+        height: {bh}px;
+        z-index: 5;
+        transform: rotate(-3deg);
+      }}
+      #tk-stage {{
+        position: absolute;
+        inset: 0;
+        perspective: {bw * 2.6:.0f}px;
+      }}
+      #tk-cube {{
+        position: absolute;
+        inset: 0;
+        transform-style: preserve-3d;
+      }}
+      .tk-face {{
+        position: absolute;
+        inset: 0;
+        overflow: hidden;
+        backface-visibility: hidden;
+        display: flex;
+        align-items: center;
+        box-shadow: 0 {bh * 0.1:.0f}px {bh * 0.22:.0f}px rgba(0, 0, 0, 0.45);
+      }}
+      .tk-face-run {{
+        background: linear-gradient(180deg, #3b8a3f 0%, {TICKER_GREEN} 55%, #276b31 100%);
+      }}
+      .tk-face-logo {{
+        background: #fff;
+        justify-content: center;
+      }}
+      .tk-logo {{
+        height: {"94%" if mark else "78%"};
+        aspect-ratio: {(word_aspect if mark else logo.get("aspect") or 3):.4f};
+        margin-left: {badge * 0.5 if mark else 0:.0f}px;
+        background: url("{word_src if mark else logo["src"]}") center / contain no-repeat;
+      }}
+      .tk-track,
+      .tk-half {{
+        display: flex;
+        align-items: center;
+        flex: none;
+        white-space: nowrap;
+      }}
+      .tk-text {{
+        font-family: "{FONT_FAMILY}", sans-serif;
+        font-weight: 800;
+        font-size: {bh * 0.46:.0f}px;
+        line-height: 1;
+        letter-spacing: 0.02em;
+        text-transform: uppercase;
+        color: #fff;
+        padding: 0 {bh * 0.22:.0f}px;
+      }}
+      .tk-sep {{
+        flex: none;
+        width: {bh * 0.5:.0f}px;
+        height: {bh * 0.5:.0f}px;
+        border-radius: 50%;
+        background: #fff {f'url("{mark["src"]}") center / contain no-repeat' if mark else ""};
+        box-shadow: 0 0 0 {bh * 0.03:.0f}px #fff;
+      }}
+      .tk-dot {{
+        width: {bh * 0.14:.0f}px;
+        height: {bh * 0.14:.0f}px;
+        border-radius: 50%;
+        background: #bfe3bf;
+        margin: 0 {bh * 0.2:.0f}px;
+      }}
+      .tk-word {{
+        flex: none;
+        height: {bh * 0.56:.0f}px;
+        aspect-ratio: {word_aspect:.4f};
+        margin: 0 {bh * 0.22:.0f}px;
+        background: url("{word_src}") center / contain no-repeat;
+        filter: brightness(0) invert(1);
+      }}
+      #tk-badge {{
+        position: absolute;
+        left: {-badge * 0.12:.0f}px;
+        top: 50%;
+        width: {badge}px;
+        height: {badge}px;
+        margin-top: {-badge / 2:.0f}px;
+        border-radius: 50%;
+        background: #fff;
+        border: {bh * 0.07:.0f}px solid #fff;
+        box-shadow: 0 {bh * 0.06:.0f}px {bh * 0.16:.0f}px rgba(0, 0, 0, 0.45);
+      }}
+      #tk-badge img {{
+        display: block;
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+      }}"""
+    markup = f"""      <!-- layer 1: brand ticker (replaces the extracted overlay): a tilted green band with a running
+           brand/site ticker; it turns like a box to the next face where the original banner changed -->
+      <div id="tk-tilt">
+        <div id="tk-stage">
+          <div id="tk-cube">
+{chr(10).join(faces)}
+          </div>
+        </div>{badge_html}
+      </div>"""
+    return css, markup
+
+
+def _ticker_script(logo: dict, duration: float) -> str:
+    beats = [t for t in (logo.get("beats") or []) if t >= 1.6]
+    turn = 0.9
+    period = 7.0
+    n_loops = int(duration / period) + 1
+    return f"""
+      // ---- brand ticker ----
+      const TURNS = {json.dumps(beats)};  // the original banner changed here; the box lands on each
+      const TURN = {turn};
+      const half = document.querySelector("#tk-cube").offsetWidth / 2;
+      tl.set("#tk-cube", {{ z: -half, rotationY: 0 }}, 0);
+      tl.set("#tk-tilt", {{ scale: 1 }}, 0);
+      // intro: the box swings in from the side
+      tl.fromTo("#tk-cube", {{ z: -half, rotationY: 90 }},
+        {{ z: -half, rotationY: 0, duration: 0.8, ease: "back.out(1.4)", immediateRender: false }}, 0);
+      tl.fromTo("#tk-tilt", {{ scale: 0.4 }}, {{ scale: 1, duration: 0.7, ease: "back.out(1.6)", immediateRender: false }}, 0);
+      TURNS.forEach((t, n) => {{
+        const t0 = Math.max(0.9, t - TURN);
+        tl.fromTo("#tk-cube", {{ z: -half, rotationY: -90 * n }},
+          {{ z: -half, rotationY: -90 * (n + 1), duration: TURN, ease: "power2.inOut", immediateRender: false }}, t0);
+        tl.fromTo("#tk-tilt", {{ scale: 1 }}, {{ scale: 0.8, duration: TURN / 2, ease: "power2.in", immediateRender: false }}, t0);
+        tl.fromTo("#tk-tilt", {{ scale: 0.8 }}, {{ scale: 1, duration: TURN / 2, ease: "back.out(2)", immediateRender: false }}, t0 + TURN / 2);
+      }});
+      // the tickers run the whole time (each track holds two identical halves)
+      tl.fromTo("#tk-track-0", {{ xPercent: 0 }}, {{ xPercent: -50, duration: {period}, ease: "none", repeat: {n_loops} }}, 0);
+      tl.fromTo("#tk-track-2", {{ xPercent: -50 }}, {{ xPercent: 0, duration: {period}, ease: "none", repeat: {n_loops} }}, 0);
+      if (document.querySelector("#tk-badge")) {{
+        tl.fromTo("#tk-badge", {{ scale: 0, rotation: -200 }},
+          {{ scale: 1, rotation: 0, duration: 0.8, ease: "back.out(1.7)" }}, 0.2);
+        tl.set("#tk-badge", {{ rotationY: 0 }}, 0);
+        TURNS.forEach((t) => {{
+          tl.fromTo("#tk-badge", {{ rotationY: 0 }},
+            {{ rotationY: 360, duration: TURN + 0.2, ease: "power2.inOut", immediateRender: false }}, Math.max(0.9, t - TURN));
+        }});
+      }}"""
+
+
 def build_html(m: dict, gsap_src: str) -> str:
     W, H = m["canvas"]["width"], m["canvas"]["height"]
     D = m["source"]["duration"]
@@ -195,8 +388,9 @@ def build_html(m: dict, gsap_src: str) -> str:
         data-start="0" data-duration="{D}" data-track-index="0"></video>"""]
     logo = layers.get("logo")
     css_logo = ""
+    ticker = bool(logo) and logo.get("style") == "ticker"
     if logo:
-        css_logo, markup = _logo_markup(logo, W)
+        css_logo, markup = (_ticker_markup if ticker else _logo_markup)(logo, W)
         clips.append(markup)
     elif ov and not ov.get("hidden"):
         z = ov["zone_px"]
@@ -235,7 +429,7 @@ def build_html(m: dict, gsap_src: str) -> str:
         pop.slice(1).forEach((s, i) => tl.to(word, {{ scale: s, duration: FRAME, ease: "none" }}, start + i * FRAME));
         if (pop[pop.length - 1] !== 1) tl.to(word, {{ scale: 1, duration: FRAME, ease: "none" }}, start + (pop.length - 1) * FRAME);
         EXIT.forEach((s, i) => tl.to(word, {{ scale: s, duration: FRAME, ease: "none" }}, end - (EXIT.length - i) * FRAME));
-      }});{_logo_script(logo, D)}
+      }});{_ticker_script(logo, D) if ticker else _logo_script(logo, D)}
       window.__timelines["main"] = tl;"""
 
     body = "\n".join(clips)

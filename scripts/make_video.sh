@@ -9,17 +9,29 @@
 #
 # Settings (environment variables, all optional):
 #   LOGO=examples/plantogram/logo.png   logo image (PNG with or without transparency, or SVG)
+#   LOGO_STYLE=ticker                   ticker: green band with a running ticker that turns like a 3D box
+#                                       on the original banner rhythm; float: the logo itself rolls in and floats
+#   BRAND=PlantOgram BRAND_URL=plantogram.com.au   ticker text (defaults match the default logo)
 #   VOICE=YLbQE9U7P1K6rBNJWNSv          ElevenLabs voice_id
 #   TRANSLATION=path.json               ready translation; without it Claude translates (ANTHROPIC_API_KEY)
 #   TTS=elevenlabs                      or "mock" for an offline dry run with a test tone
 #   WORK=work/<video name>              project directory (reused if it exists; FRESH=1 to redo)
 #   KEEP_AMBIENCE=1                     0 = drop the original track completely
+#   REDUB=0                             a project that is already dubbed only gets its brand block
+#                                       rebuilt (no ElevenLabs calls); REDUB=1 translates and dubs again
 set -euo pipefail
 
 VIDEO=${1:?"usage: $0 <input video> [output.mp4]"}
 OUT=${2:-out/$(basename "${VIDEO%.*}")_en.mp4}
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
-LOGO=${LOGO:-$ROOT/examples/plantogram/logo.png}
+if [[ -z ${LOGO:-} ]]; then
+  LOGO=$ROOT/examples/plantogram/logo.png
+  BRAND=${BRAND-PlantOgram}
+  BRAND_URL=${BRAND_URL-plantogram.com.au}
+fi
+LOGO_STYLE=${LOGO_STYLE:-ticker}
+BRAND=${BRAND:-}
+BRAND_URL=${BRAND_URL:-}
 VOICE=${VOICE:-YLbQE9U7P1K6rBNJWNSv}
 TTS=${TTS:-elevenlabs}
 [[ -n ${WORK:-} ]] && WORK_SET=1
@@ -27,6 +39,7 @@ WORK=${WORK:-$ROOT/work/$(basename "${VIDEO%.*}")}
 TRANSLATION=${TRANSLATION:-}
 KEEP_AMBIENCE=${KEEP_AMBIENCE:-1}
 
+REDUB=${REDUB:-0}
 abs() { python3 -c 'import os,sys; print(os.path.abspath(sys.argv[1]))' "$1"; }
 URL=""
 if [[ $VIDEO =~ ^https?:// ]]; then
@@ -44,12 +57,17 @@ die() { printf '\033[31merror:\033[0m %s\n' "$*" >&2; exit 1; }
 
 [[ -n $URL || -f $VIDEO ]] || die "no such video: $VIDEO (copy it to the server, e.g. scp, or pass a https:// link)"
 [[ -f $LOGO ]] || die "no such logo: $LOGO"
-if [[ $TTS == elevenlabs ]]; then
+RESTYLE=0
+if [[ $REDUB != 1 && ${FRESH:-0} != 1 && -f $WORK/assets/voice_en.m4a ]] \
+   && grep -q '"logo"' "$WORK/elements.json" 2>/dev/null; then
+  RESTYLE=1
+fi
+if [[ $TTS == elevenlabs && $RESTYLE == 0 ]]; then
   [[ -n ${ELEVENLABS_API_KEY:-} ]] || die "set ELEVENLABS_API_KEY (or TTS=mock for a dry run)"
   (LC_ALL=C; [[ $ELEVENLABS_API_KEY =~ ^[A-Za-z0-9_-]{20,}$ ]]) \
     || die "ELEVENLABS_API_KEY does not look like a key (expected something like sk_..., not the placeholder text)"
 fi
-if [[ -z $TRANSLATION && -z ${ANTHROPIC_API_KEY:-} && ! -f $WORK/translation.en.json ]]; then
+if [[ $RESTYLE == 0 && -z $TRANSLATION && -z ${ANTHROPIC_API_KEY:-} && ! -f $WORK/translation.en.json ]]; then
   die "set ANTHROPIC_API_KEY for automatic translation, or TRANSLATION=path/to/translation.json"
 fi
 
@@ -89,11 +107,19 @@ else
   say "1/3 reusing extracted layers in $WORK (FRESH=1 to redo)"
 fi
 
-say "2/3 logo, voice removal, translation, ElevenLabs dub, English captions"
-args=(localize "$WORK" --logo "$LOGO" --voice "$VOICE" --tts "$TTS")
-[[ -n $TRANSLATION ]] && args+=(--translation "$TRANSLATION")
-[[ $KEEP_AMBIENCE == 0 ]] && args+=(--no-ambience)
-python -m vidextract "${args[@]}"
+brand=()
+[[ -n $BRAND ]] && brand+=(--brand "$BRAND")
+[[ -n $BRAND_URL ]] && brand+=(--brand-url "$BRAND_URL")
+if [[ $RESTYLE == 1 ]]; then
+  say "2/3 already dubbed: rebuilding only the brand block ($LOGO_STYLE); REDUB=1 to translate and dub again"
+  python -m vidextract restyle "$WORK" --logo-style "$LOGO_STYLE" "${brand[@]}"
+else
+  say "2/3 logo, voice removal, translation, ElevenLabs dub, English captions"
+  args=(localize "$WORK" --logo "$LOGO" --logo-style "$LOGO_STYLE" "${brand[@]}" --voice "$VOICE" --tts "$TTS")
+  [[ -n $TRANSLATION ]] && args+=(--translation "$TRANSLATION")
+  [[ $KEEP_AMBIENCE == 0 ]] && args+=(--no-ambience)
+  python -m vidextract "${args[@]}"
+fi
 
 say "3/3 rendering"
 mkdir -p "$(dirname "$OUT")"

@@ -118,14 +118,23 @@ def test_synthetic_roundtrip():
         localize(str(out), LocalizeOptions(translation=str(tr), dub=False, remove_overlay=True), log=lambda *_: None)
         assert 'id="overlay"' not in (out / "index.html").read_text()
 
-        localize(str(out), LocalizeOptions(logo=str(logo), translation=str(tr), tts="mock"), log=lambda *_: None)
+        localize(str(out), LocalizeOptions(logo=str(logo), logo_style="float", translation=str(tr), tts="mock"),
+                 log=lambda *_: None)
+        assert "logo-wrap" in (out / "index.html").read_text()
+        localize(str(out), LocalizeOptions(logo=str(logo), brand="Acme", brand_url="acme.test", translation=str(tr),
+                                           tts="mock"), log=lambda *_: None)
         loc = json.loads((out / "elements.json").read_text())
         assert loc["layers"]["audio"]["src"] == "assets/voice_en.m4a"
         assert [w["text"] for w in loc["layers"]["captions"]["words"]] == ["UNO", "DOS", "TRES"]
         assert loc["layers"]["captions"]["words"][0]["start"] >= 0.3 - 1e-6
         html = (out / "index.html").read_text()
-        assert "logo-wrap" in html and 'id="overlay"' not in html and "voice_en.m4a" in html
+        assert "tk-cube" in html and "acme.test" in html and 'id="overlay"' not in html and "voice_en.m4a" in html
         assert (out / "assets" / "logo.png").exists() and (out / "assets" / "voice_en.m4a").exists()
+        # restyle: only the brand block changes, the dub and captions stay
+        from vidextract.localize import restyle
+        restyle(str(out), LocalizeOptions(logo_style="float"), log=lambda *_: None)
+        html = (out / "index.html").read_text()
+        assert "logo-wrap" in html and "tk-cube" not in html and "voice_en.m4a" in html
 
 
 if __name__ == "__main__":
