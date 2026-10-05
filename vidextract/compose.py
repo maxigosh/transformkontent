@@ -335,11 +335,10 @@ def _ticker_markup(logo: dict, W: int) -> tuple[str, str]:
     return css, markup
 
 
-def _ticker_script(logo: dict, duration: float) -> str:
+def _ticker_script(logo: dict, duration: float, W: int) -> str:
     beats = [t for t in (logo.get("beats") or []) if t >= 1.6]
     turn = 0.9
-    period = 7.0
-    n_loops = int(duration / period) + 1
+    speed = 0.17 * W  # px/s; the FunPay icon ticker ran ~180 px/s at 1080 wide
     return f"""
       // ---- brand ticker ----
       const TURNS = {json.dumps(beats)};  // the original banner changed here; the box lands on each
@@ -358,9 +357,13 @@ def _ticker_script(logo: dict, duration: float) -> str:
         tl.fromTo("#tk-tilt", {{ scale: 1 }}, {{ scale: 0.8, duration: TURN / 2, ease: "power2.in", immediateRender: false }}, t0);
         tl.fromTo("#tk-tilt", {{ scale: 0.8 }}, {{ scale: 1, duration: TURN / 2, ease: "back.out(2)", immediateRender: false }}, t0 + TURN / 2);
       }});
-      // the tickers run the whole time (each track holds two identical halves)
-      tl.fromTo("#tk-track-0", {{ xPercent: 0 }}, {{ xPercent: -50, duration: {period}, ease: "none", repeat: {n_loops} }}, 0);
-      tl.fromTo("#tk-track-2", {{ xPercent: -50 }}, {{ xPercent: 0, duration: {period}, ease: "none", repeat: {n_loops} }}, 0);
+      // the tickers run right-to-left the whole time, at the original icon ticker's pace
+      // (each track holds two identical halves, so one half's width is a seamless loop)
+      ["#tk-track-0", "#tk-track-2"].forEach((sel) => {{
+        const loop = document.querySelector(sel).scrollWidth / 2 / {speed:.1f};
+        tl.fromTo(sel, {{ xPercent: 0 }}, {{ xPercent: -50, duration: loop, ease: "none",
+          repeat: Math.ceil({duration:.2f} / loop) }}, 0);
+      }});
       if (document.querySelector("#tk-badge")) {{
         tl.fromTo("#tk-badge", {{ scale: 0, rotation: -200 }},
           {{ scale: 1, rotation: 0, duration: 0.8, ease: "back.out(1.7)" }}, 0.2);
@@ -429,7 +432,7 @@ def build_html(m: dict, gsap_src: str) -> str:
         pop.slice(1).forEach((s, i) => tl.to(word, {{ scale: s, duration: FRAME, ease: "none" }}, start + i * FRAME));
         if (pop[pop.length - 1] !== 1) tl.to(word, {{ scale: 1, duration: FRAME, ease: "none" }}, start + (pop.length - 1) * FRAME);
         EXIT.forEach((s, i) => tl.to(word, {{ scale: s, duration: FRAME, ease: "none" }}, end - (EXIT.length - i) * FRAME));
-      }});{_ticker_script(logo, D) if ticker else _logo_script(logo, D)}
+      }});{_ticker_script(logo, D, W) if ticker else _logo_script(logo, D)}
       window.__timelines["main"] = tl;"""
 
     body = "\n".join(clips)
