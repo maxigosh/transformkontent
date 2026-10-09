@@ -19,7 +19,7 @@ SEEN = {}
 
 class Fake(BaseHTTPRequestHandler):
     def do_POST(self):
-        SEEN.update(path=self.path, body=json.loads(self.rfile.read(int(self.headers["Content-Length"]))))
+        SEEN.update(path=self.path, auth=self.headers.get("Authorization"), body=json.loads(self.rfile.read(int(self.headers["Content-Length"]))))
         sr = 24000
         t = np.arange(int(1.2 * sr)) / sr
         tone = (0.3 * np.sin(2 * np.pi * 200 * t) * ((t > 0.2) & (t < 1.0))).astype(np.float32)
@@ -43,10 +43,10 @@ class Fake(BaseHTTPRequestHandler):
 def test_voicestudio_speech():
     srv = HTTPServer(("127.0.0.1", 0), Fake)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
-    tts = VoiceStudioTTS(voice="Narrator", url=f"http://127.0.0.1:{srv.server_port}")
+    tts = VoiceStudioTTS(voice="Narrator", url=f"http://127.0.0.1:{srv.server_port}", api_key="k123")
     audio, words = tts.speak("one longer word", speed=1.1)
     srv.shutdown()
-    assert SEEN["path"] == "/v1/audio/speech"
+    assert SEEN["path"] == "/v1/audio/speech" and SEEN["auth"] == "Bearer k123"
     assert SEEN["body"]["voice"] == "Narrator" and SEEN["body"]["input"] == "one longer word"
     assert SEEN["body"]["response_format"] == "wav" and SEEN["body"]["language"] == "en"
     assert [w["text"] for w in words] == ["one", "longer", "word"]

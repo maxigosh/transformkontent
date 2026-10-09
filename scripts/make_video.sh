@@ -79,6 +79,13 @@ fi
 if [[ $TTS == voicestudio && $RESTYLE == 0 ]]; then
   VS=${VOICESTUDIO_URL:-http://127.0.0.1:3900}
   curl -sf "$VS/health" >/dev/null || die "VoiceStudio does not answer at $VS (docker ps; VOICESTUDIO_URL=...)"
+  # its API key lives in the container; read it from there unless given (never printed)
+  if [[ -z ${VOICESTUDIO_API_KEY:-} ]] && command -v docker >/dev/null; then
+    VOICESTUDIO_API_KEY=$(docker exec "${VOICESTUDIO_CONTAINER:-voicestudio}" printenv OMNIVOICE_API_KEY 2>/dev/null || true)
+  fi
+  export VOICESTUDIO_API_KEY=${VOICESTUDIO_API_KEY:-}
+  code=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $VOICESTUDIO_API_KEY" "$VS/v1/audio/voices")
+  [[ $code == 200 ]] || die "VoiceStudio refuses the API (HTTP $code): set VOICESTUDIO_API_KEY to its OMNIVOICE_API_KEY"
 fi
 if [[ $TTS == elevenlabs && $RESTYLE == 0 ]]; then
   [[ -n ${ELEVENLABS_API_KEY:-} ]] || die "set ELEVENLABS_API_KEY (or TTS=mock for a dry run)"

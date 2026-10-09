@@ -109,22 +109,28 @@ class VoiceStudioTTS:
     are estimated: the voiced span is found by energy and shared out by word length."""
 
     def __init__(self, voice: str | None = None, model: str | None = None, url: str | None = None,
-                 language: str = "en"):
+                 language: str = "en", api_key: str | None = None):
         self.url = (url or os.environ.get("VOICESTUDIO_URL") or "http://127.0.0.1:3900").rstrip("/")
         self.voice = voice or os.environ.get("VOICESTUDIO_VOICE") or "default"
         self.model = model or os.environ.get("VOICESTUDIO_MODEL") or "omnivoice"
         self.language = language
+        # the server's OMNIVOICE_API_KEY: needed whenever requests reach it through docker or a network
+        self.api_key = api_key if api_key is not None else os.environ.get("VOICESTUDIO_API_KEY", "").strip()
 
     def speak(self, text: str, speed: float = 1.0) -> tuple[bytes, list[dict]]:
         body = {"model": self.model, "input": text, "voice": self.voice, "response_format": "wav",
                 "speed": round(min(1.6, max(0.6, speed)), 3), "language": self.language}
-        req = urllib.request.Request(self.url + "/v1/audio/speech", data=json.dumps(body).encode(),
-                                     headers={"Content-Type": "application/json"})
+        headers = {"Content-Type": "application/json"}
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+        req = urllib.request.Request(self.url + "/v1/audio/speech", data=json.dumps(body).encode(), headers=headers)
         try:
             with urllib.request.urlopen(req, timeout=1800) as r:
                 audio = r.read()
         except urllib.error.HTTPError as e:
-            raise RuntimeError(f"VoiceStudio {e.code}: {e.read().decode(errors='replace')[:500]}") from None
+            hint = (" — set VOICESTUDIO_API_KEY to the server's OMNIVOICE_API_KEY "
+                    "(docker exec voicestudio printenv OMNIVOICE_API_KEY)") if e.code == 401 else ""
+            raise RuntimeError(f"VoiceStudio {e.code}: {e.read().decode(errors='replace')[:500]}{hint}") from None
         except urllib.error.URLError as e:
             raise RuntimeError(f"VoiceStudio is not reachable at {self.url} ({e.reason})") from None
         return audio, estimate_words(text, decode_audio(audio))
