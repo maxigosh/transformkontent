@@ -42,10 +42,14 @@ def phrases_from_words(words: list[dict], cuts: list[float] = (), gap: float = 0
 
 
 SYSTEM = """You translate the speech of a short vertical video for dubbing.
-The source is a transcript recovered from on-screen captions: one word per caption, no punctuation,
-occasional OCR slips (Е/Ё, Й/И). Translate the meaning, not word for word, into natural spoken {lang}
-that fits the speaker's register (stand-up comedy stays casual; keep jokes, swearing and tone).
-Each phrase has a time slot: keep the translation speakable within it (about 2.7 words per second).
+The source is a transcript recovered from on-screen captions (one word or one short phrase per caption,
+little punctuation, occasional OCR slips such as Е/Ё, Й/И, № read as N). Translate the meaning, not word for
+word, into natural spoken {lang} that fits the speaker's register (stand-up comedy stays casual with its jokes
+and swearing; an expert explaining stays clear and confident).
+Each phrase has a time slot: keep the translation speakable within it (about 2.7 words per second), and about
+as long as the caption it replaces. Phrases marked [card] are big title cards: keep them as short (e.g. "Myth #1").
+Phrases marked [note] are small on-screen notices such as a medical disclaimer: translate them as the standard
+written notice in {lang}, not as speech.
 Return exactly one translation per input phrase, same ids, same order."""
 
 
@@ -64,7 +68,8 @@ def translate_claude(phrases: list[dict], lang: str = "English", model: str = DE
     lines = []
     for p in phrases:
         slot = (p["slot_end"] or p["end"] + 1.0) - p["start"]
-        lines.append(f'{p["id"]} [{slot:.1f}s]: {p["src"]}')
+        card = " [card]" if p.get("card") else (" [note]" if p.get("note") else "")
+        lines.append(f'{p["id"]} [{slot:.1f}s]{card}: {p["src"]}')
     client = anthropic.Anthropic()
     response = client.messages.parse(
         model=model,

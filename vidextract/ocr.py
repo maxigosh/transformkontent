@@ -48,7 +48,8 @@ def available() -> str | None:
     return None
 
 
-def recognize(images: list[np.ndarray], lang: str = "rus") -> list[dict]:
+def recognize(images: list[np.ndarray], lang: str = "rus", psm: str = "7") -> list[dict]:
+    """psm 7: one line of text per image; psm 6: a block of lines."""
     if not images:
         return []
     lang_path = ensure_lang(lang)
@@ -60,7 +61,7 @@ def recognize(images: list[np.ndarray], lang: str = "rus") -> list[dict]:
             paths.append(p)
         job = os.path.join(tmp, "job.json")
         with open(job, "w") as f:
-            json.dump({"lang": lang, "langPath": str(lang_path), "psm": "7", "images": paths}, f)
+            json.dump({"lang": lang, "langPath": str(lang_path), "psm": psm, "images": paths}, f)
         proc = subprocess.run(["node", str(HELPER), job], cwd=HELPER.parent, capture_output=True, text=True)
         if proc.returncode != 0:
             raise RuntimeError(f"OCR failed: {proc.stderr[-2000:]}")

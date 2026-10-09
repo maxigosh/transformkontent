@@ -17,6 +17,10 @@
 #   TTS=elevenlabs                      or "mock" for an offline dry run with a test tone
 #   WORK=work/<video name>              project directory (reused if it exists; FRESH=1 to redo)
 #   KEEP_AMBIENCE=1                     0 = drop the original track completely
+#   CAPTIONS=outline                    outline: one white outlined word at a time (default);
+#                                       boxes: phrases in solid colour boxes (white on red) + title cards
+#   HEADER_PANELS="a.png b.png ..."     images turned through on a 3D box at the top (4 = a box);
+#                                       use with LOGO_STYLE=footer to put the logo at the bottom
 #   REDUB=0                             a project that is already dubbed only gets its brand block
 #                                       rebuilt (no ElevenLabs calls); REDUB=1 translates and dubs again
 set -euo pipefail
@@ -30,6 +34,8 @@ if [[ -z ${LOGO:-} ]]; then
   BRAND_URL=${BRAND_URL-plantogram.com.au}
 fi
 LOGO_STYLE=${LOGO_STYLE:-ticker}
+CAPTIONS=${CAPTIONS:-outline}
+HEADER_PANELS=${HEADER_PANELS:-}
 BRAND=${BRAND:-}
 BRAND_URL=${BRAND_URL:-}
 VOICE=${VOICE:-YLbQE9U7P1K6rBNJWNSv}
@@ -58,7 +64,7 @@ die() { printf '\033[31merror:\033[0m %s\n' "$*" >&2; exit 1; }
 [[ -n $URL || -f $VIDEO ]] || die "no such video: $VIDEO (copy it to the server, e.g. scp, or pass a https:// link)"
 [[ -f $LOGO ]] || die "no such logo: $LOGO"
 RESTYLE=0
-if [[ $REDUB != 1 && ${FRESH:-0} != 1 && -f $WORK/assets/voice_en.m4a ]] \
+if [[ -z $HEADER_PANELS && $REDUB != 1 && ${FRESH:-0} != 1 && -f $WORK/assets/voice_en.m4a ]] \
    && grep -q '"logo"' "$WORK/elements.json" 2>/dev/null; then
   RESTYLE=1
 fi
@@ -102,7 +108,9 @@ fi
 if [[ ${FRESH:-0} == 1 || ! -f $WORK/elements.json ]]; then
   say "1/3 extracting layers from $(basename "$VIDEO") (takes ~5-10 min per minute of video)"
   rm -rf "$WORK"
-  python -m vidextract "$VIDEO" -o "$WORK"
+  ex=()
+  [[ $CAPTIONS == boxes ]] && ex+=(--caption-boxes)
+  python -m vidextract "$VIDEO" -o "$WORK" "${ex[@]}"
 else
   say "1/3 reusing extracted layers in $WORK (FRESH=1 to redo)"
 fi
@@ -118,6 +126,11 @@ else
   args=(localize "$WORK" --logo "$LOGO" --logo-style "$LOGO_STYLE" "${brand[@]}" --voice "$VOICE" --tts "$TTS")
   [[ -n $TRANSLATION ]] && args+=(--translation "$TRANSLATION")
   [[ $KEEP_AMBIENCE == 0 ]] && args+=(--no-ambience)
+  if [[ -n $HEADER_PANELS ]]; then
+    # shellcheck disable=SC2206  # a space-separated list or a glob, on purpose
+    panels=($HEADER_PANELS)
+    args+=(--header-panels "${panels[@]}")
+  fi
   python -m vidextract "${args[@]}"
 fi
 

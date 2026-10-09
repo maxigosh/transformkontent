@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import html
 import json
+import math
 import shutil
 from pathlib import Path
 
@@ -375,6 +376,210 @@ def _ticker_script(logo: dict, duration: float, W: int) -> str:
       }}"""
 
 
+def _panels_markup(header: dict, W: int) -> tuple[str, str]:
+    """Header panels on the faces of a turning prism (4 panels = a box), the way the
+    original sponsor banner turned from one card to the next."""
+    z = header["zone_px"]
+    panels = header["panels"]
+    n = len(panels)
+    aspect = header.get("aspect", 2.6)
+    bw = round(W * 0.92)
+    bh = round(bw / aspect)
+    cx, cy = W // 2, (z[1] + z[3]) // 2
+    depth = bw / 2 / math.tan(math.pi / n) if n > 2 else bh * 0.05
+    faces = "\n".join(
+        f'          <div class="hd-face" style="transform: rotateY({i * 360 / n:.3f}deg) translateZ({depth:.1f}px); '
+        f'background-image: url(&quot;{src}&quot;)"></div>' for i, src in enumerate(panels))
+    css = f"""
+      #hd-wrap {{
+        position: absolute;
+        left: {cx - bw // 2}px;
+        top: {cy - bh // 2}px;
+        width: {bw}px;
+        height: {bh}px;
+        z-index: 5;
+        perspective: {bw * 2.6:.0f}px;
+      }}
+      #hd-prism {{
+        position: absolute;
+        inset: 0;
+        transform-style: preserve-3d;
+      }}
+      .hd-face {{
+        position: absolute;
+        inset: 0;
+        backface-visibility: hidden;
+        background: #fff center / cover no-repeat;
+        border-top: {max(2, bh * 0.012):.0f}px solid #c9a227;
+        border-bottom: {max(2, bh * 0.012):.0f}px solid #c9a227;
+        box-shadow: 0 {bh * 0.05:.0f}px {bh * 0.12:.0f}px rgba(0, 0, 0, 0.45);
+      }}"""
+    markup = f"""      <!-- layer 1: header panels ({n}) on a turning prism; it turns to the next panel on the
+           original banner rhythm (or at a steady pace when the source had no banner) -->
+      <div id="hd-wrap">
+        <div id="hd-prism">
+{faces}
+        </div>
+      </div>"""
+    return css, markup
+
+
+def _panels_script(header: dict) -> str:
+    n = len(header["panels"])
+    beats = [t for t in (header.get("beats") or []) if t >= 1.6]
+    return f"""
+      // ---- header panels ----
+      const HD_TURNS = {json.dumps(beats)};
+      const HD_STEP = {360 / n:.4f};
+      const HD_DEPTH = {0 if n <= 2 else 1} * (document.querySelector("#hd-prism").offsetWidth / 2 / Math.tan(Math.PI / {n}));
+      tl.set("#hd-prism", {{ z: -HD_DEPTH, rotationY: 0 }}, 0);
+      tl.set("#hd-wrap", {{ scale: 1 }}, 0);
+      tl.fromTo("#hd-prism", {{ z: -HD_DEPTH, rotationY: 90 }},
+        {{ z: -HD_DEPTH, rotationY: 0, duration: 0.8, ease: "back.out(1.3)", immediateRender: false }}, 0);
+      tl.fromTo("#hd-wrap", {{ scale: 0.4 }}, {{ scale: 1, duration: 0.7, ease: "back.out(1.6)", immediateRender: false }}, 0);
+      HD_TURNS.forEach((t, k) => {{
+        const t0 = Math.max(0.9, t - 0.9);
+        tl.fromTo("#hd-prism", {{ z: -HD_DEPTH, rotationY: -HD_STEP * k }},
+          {{ z: -HD_DEPTH, rotationY: -HD_STEP * (k + 1), duration: 0.9, ease: "power2.inOut", immediateRender: false }}, t0);
+        tl.fromTo("#hd-wrap", {{ scale: 1 }}, {{ scale: 0.82, duration: 0.45, ease: "power2.in", immediateRender: false }}, t0);
+        tl.fromTo("#hd-wrap", {{ scale: 0.82 }}, {{ scale: 1, duration: 0.45, ease: "back.out(2)", immediateRender: false }}, t0 + 0.45);
+      }});"""
+
+
+def _footer_rows(logo: dict, W: int, H: int) -> tuple[int, int]:
+    aspect = logo.get("aspect") or 3
+    fw = round(W * logo.get("footer_width_pct", 62) / 100)
+    fh = round(fw / aspect)
+    bottom = round(H * logo.get("footer_bottom_pct", 4.5) / 100)
+    return H - bottom - fh, H - bottom
+
+
+def _footer_markup(logo: dict, W: int, H: int) -> tuple[str, str]:
+    """The brand logo standing still at the bottom of the frame, below the captions."""
+    aspect = logo.get("aspect") or 3
+    fw = round(W * logo.get("footer_width_pct", 62) / 100)
+    fh = round(fw / aspect)
+    bottom = round(H * logo.get("footer_bottom_pct", 4.5) / 100)
+    css = f"""
+      #footer-logo {{
+        position: absolute;
+        left: {(W - fw) // 2}px;
+        top: {H - bottom - fh}px;
+        width: {fw}px;
+        height: {fh}px;
+        z-index: 5;
+        object-fit: contain;
+        filter: drop-shadow(0 0 3px rgba(255, 255, 255, 0.6)) drop-shadow(0 0 14px rgba(255, 255, 255, 0.3))
+          drop-shadow(0 6px 12px rgba(0, 0, 0, 0.5));
+      }}"""
+    markup = f"""      <!-- footer: brand logo, static -->
+      <img id="footer-logo" src="{logo["src"]}" alt="" />"""
+    return css, markup
+
+
+def _box_caption_css(style: dict, W: int) -> str:
+    return f"""
+      .box-cap {{
+        position: absolute;
+        transform: translate(-50%, -50%);
+        box-sizing: border-box;
+        max-width: {round(W * 0.94)}px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: {style["font_px"] * 0.12:.0f}px {style["font_px"] * 0.4:.0f}px;
+        background: {style["box_color"]};
+        color: {style["text_color"]};
+        font-family: "{FONT_FAMILY}", sans-serif;
+        font-weight: 500;
+        font-size: {style["font_px"]:.0f}px;
+        line-height: 1.12;
+        text-align: center;
+        z-index: 4;
+      }}
+      .box-cap.card {{
+        font-weight: 600;
+        line-height: 1.02;
+        text-transform: uppercase;
+      }}
+      .note-cap {{
+        position: absolute;
+        box-sizing: border-box;
+        border-radius: 8px;
+        backdrop-filter: blur(14px);
+        background: rgba(0, 0, 0, 0.18);
+        z-index: 4;
+      }}
+      .note-cap .note-text {{
+        position: absolute;
+        font-family: "{FONT_FAMILY}", sans-serif;
+        font-weight: 500;
+        line-height: 1.25;
+        color: #fff;
+        text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+      }}"""
+
+
+def _box_caption_clips(caps: dict, fps: float) -> list[str]:
+    """One clip per phrase: a box of the source colour over the original box, holding
+    the (translated) text. Boxes that moved in the source follow their track."""
+    out = ["      <!-- layer 2: phrase captions in boxes (each covers the original box; editable text) -->"]
+    for p in caps["phrases"]:
+        if "text_out" in p and not p["text_out"].strip():
+            continue   # translated to nothing (an icon OCR mistook for words): leave the original alone
+        text = p.get("text_out") or p["text"]
+        if p.get("uppercase"):
+            text = text.upper()
+        _, cx, cy, w, h = p["track"][0]
+        fs = ""
+        if p.get("card"):
+            # title cards: the text fills the card like the original's big lettering
+            n_lines = max(1, len(text.split()))
+            fs = f" font-size: {min(h / n_lines * 0.62, w / max(4, max(len(t) for t in text.split())) * 1.45):.0f}px;"
+        dur = round(max(1 / fps, p["end"] - p["start"]), 3)
+        out.append(
+            f'      <div id="{p["id"]}" class="clip box-cap{" card" if p.get("card") else ""}" data-start="{p["start"]}" '
+            f'data-duration="{dur}" data-track-index="2" style="left: {cx}px; top: {cy}px; min-width: {w}px; '
+            f'min-height: {h}px;{fs}"><span>{html.escape(text)}</span></div>')
+    return out
+
+
+def _note_clips(notes: list[dict], fps: float, keep_clear: tuple[int, int] | None = None) -> list[str]:
+    """Small print near the bottom (a disclaimer): the original is blurred out and the
+    (translated) text is written in its place, same size and alignment — or just above
+    `keep_clear` (the footer logo's rows) when its place is under the footer."""
+    out = ["      <!-- layer 2b: small on-screen notices, original blurred out -->"] if notes else []
+    for n in notes:
+        x, y, w, h = n["bbox"]
+        lines = max(1, n.get("lines", 1))
+        fs = h / lines / 1.12
+        pad = round(fs * 0.5)
+        dur = round(max(1 / fps, n["end"] - n["start"]), 3)
+        text = n.get("text_out") or n["text"]
+        text_top = pad - fs * 0.1
+        if keep_clear and y < keep_clear[1] and y + h > keep_clear[0]:
+            text_top = keep_clear[0] - round(fs * 0.6) - h - (y - pad)   # same layout, lifted above the footer
+        out.append(
+            f'      <div id="{n["id"]}" class="clip note-cap" data-start="{n["start"]}" data-duration="{dur}" '
+            f'data-track-index="2" style="left: {x - pad}px; top: {y - pad}px; width: {w + 2 * pad}px; '
+            f'height: {h + 2 * pad}px"><span class="note-text" style="left: {pad}px; top: {text_top:.0f}px; '
+            f'width: {round(w * 1.25)}px; font-size: {fs:.0f}px">{html.escape(text)}</span></div>')
+    return out
+
+
+def _box_caption_script(caps: dict) -> str:
+    moves = {p["id"]: p["track"] for p in caps["phrases"] if len(p["track"]) > 1}
+    if not moves:
+        return ""
+    return f"""
+      // boxes that slid in the source follow the same path, frame by frame
+      const BOX_TRACKS = {json.dumps(moves)};
+      Object.entries(BOX_TRACKS).forEach(([id, keys]) => {{
+        const box = document.getElementById(id);
+        if (box) keys.forEach(([t, x, y, w, h]) => tl.set(box, {{ left: x, top: y, minWidth: w, minHeight: h }}, t));
+      }});"""
+
+
 def build_html(m: dict, gsap_src: str) -> str:
     W, H = m["canvas"]["width"], m["canvas"]["height"]
     D = m["source"]["duration"]
@@ -383,7 +588,10 @@ def build_html(m: dict, gsap_src: str) -> str:
     ov, caps, audio = layers["overlay"], layers["captions"], layers["audio"]
 
     css_caption = ""
-    if caps:
+    boxed = bool(caps) and caps.get("kind") == "box"
+    if boxed:
+        css_caption = _box_caption_css(caps["style"], W)
+    elif caps:
         css_caption, _, _ = _caption_css(caps["style"], W, H)
 
     clips = [f"""      <!-- layer 0: footage with overlay/captions painted out -->
@@ -391,17 +599,30 @@ def build_html(m: dict, gsap_src: str) -> str:
         data-start="0" data-duration="{D}" data-track-index="0"></video>"""]
     logo = layers.get("logo")
     css_logo = ""
-    ticker = bool(logo) and logo.get("style") == "ticker"
-    if logo:
-        css_logo, markup = (_ticker_markup if ticker else _logo_markup)(logo, W)
+    header = layers.get("header")
+    style = (logo or {}).get("style")
+    ticker = bool(logo) and style == "ticker"
+    footer = bool(logo) and style == "footer"
+    if header:
+        css_hd, markup = _panels_markup(header, W)
+        css_logo += css_hd
         clips.append(markup)
-    elif ov and not ov.get("hidden"):
+    if logo:
+        css_l, markup = (_footer_markup(logo, W, H) if footer
+                         else (_ticker_markup if ticker else _logo_markup)(logo, W))
+        css_logo += css_l
+        clips.append(markup)
+    if not logo and not header and ov and not ov.get("hidden"):
         z = ov["zone_px"]
         clips.append(f"""      <!-- layer 1: animated sponsor overlay, VP9 with alpha ({len(ov["states"])} states, see elements.json) -->
       <video id="overlay" class="clip" src="{ov["src"]}" muted playsinline
         data-start="0" data-duration="{D}" data-track-index="1"
         style="top: {z[1]}px; height: {z[3] - z[1]}px"></video>""")
-    if caps:
+    if boxed:
+        clips += _box_caption_clips(caps, fps)
+        clear = _footer_rows(logo, W, H) if footer else None
+        clips += _note_clips(caps.get("notes") or [], fps, clear)
+    elif caps:
         clips.append("      <!-- layer 2: word captions (editable text) -->")
         for w in caps["words"]:
             dur = round(max(1 / fps, w["end"] - w["start"]), 3)
@@ -432,7 +653,7 @@ def build_html(m: dict, gsap_src: str) -> str:
         pop.slice(1).forEach((s, i) => tl.to(word, {{ scale: s, duration: FRAME, ease: "none" }}, start + i * FRAME));
         if (pop[pop.length - 1] !== 1) tl.to(word, {{ scale: 1, duration: FRAME, ease: "none" }}, start + (pop.length - 1) * FRAME);
         EXIT.forEach((s, i) => tl.to(word, {{ scale: s, duration: FRAME, ease: "none" }}, end - (EXIT.length - i) * FRAME));
-      }});{_ticker_script(logo, D, W) if ticker else _logo_script(logo, D)}
+      }});{_box_caption_script(caps) if boxed else ""}{_panels_script(header) if header else ""}{_ticker_script(logo, D, W) if ticker else ("" if footer else _logo_script(logo, D))}
       window.__timelines["main"] = tl;"""
 
     body = "\n".join(clips)

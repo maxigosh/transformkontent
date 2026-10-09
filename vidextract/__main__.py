@@ -24,9 +24,14 @@ def localize_main(argv: list[str]) -> int:
                     "with ElevenLabs; captions are rebuilt from the new voice's timing.")
     p.add_argument("project", help="project directory produced by `vidextract <video> -o <dir>`")
     p.add_argument("--logo", help="logo image (PNG/SVG/WebP with transparency) to replace the overlay")
-    p.add_argument("--logo-style", choices=["ticker", "float"], default="ticker",
+    p.add_argument("--logo-style", choices=["ticker", "float", "footer"], default="ticker",
                    help="ticker: tilted band with a running brand/site ticker that turns like a 3D box on the "
-                        "original banner rhythm (default); float: the logo itself rolls in and floats")
+                        "original banner rhythm (default); float: the logo itself rolls in and floats; "
+                        "footer: the logo stands still at the bottom of the frame")
+    p.add_argument("--header-panels", nargs="+", metavar="IMG",
+                   help="header images shown at the top on a turning 3D prism (4 images = a box)")
+    p.add_argument("--header-hold", type=float, default=4.0,
+                   help="seconds per header panel when the source had no banner to take the rhythm from")
     p.add_argument("--brand", help="ticker text: brand name (without it the wordmark image runs instead)")
     p.add_argument("--brand-url", help="ticker text: site address, e.g. example.com")
     p.add_argument("--lang", default="English", help="target language name (default English)")
@@ -45,7 +50,8 @@ def localize_main(argv: list[str]) -> int:
                    help="no dub: keep the original audio and time the translated captions to the original speech")
     a = p.parse_args(argv)
     localize(a.project, LocalizeOptions(
-        logo=a.logo, logo_style=a.logo_style, brand=a.brand, brand_url=a.brand_url, lang=a.lang, lang_code=a.lang_code, translation=a.translation,
+        logo=a.logo, logo_style=a.logo_style, brand=a.brand, brand_url=a.brand_url,
+        header_panels=a.header_panels, header_hold=a.header_hold, lang=a.lang, lang_code=a.lang_code, translation=a.translation,
         translate_only=a.translate_only, tts=a.tts, voice=a.voice, tts_model=a.tts_model,
         dub=not a.subtitles_only, remove_overlay=a.remove_overlay, keep_ambience=not a.no_ambience))
     return 0
@@ -58,7 +64,7 @@ def restyle_main(argv: list[str]) -> int:
         prog="vidextract restyle",
         description="Change only the brand block of a localized project (no new translation or dub).")
     p.add_argument("project")
-    p.add_argument("--logo-style", choices=["ticker", "float"], default="ticker")
+    p.add_argument("--logo-style", choices=["ticker", "float", "footer"], default="ticker")
     p.add_argument("--brand", help="ticker text: brand name")
     p.add_argument("--brand-url", help="ticker text: site address")
     a = p.parse_args(argv)
@@ -85,10 +91,13 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--caption-band", type=_zone, help="force caption band TOP:BOTTOM (fractions of height)")
     p.add_argument("--no-overlay", action="store_true", help="don't extract a graphic overlay layer")
     p.add_argument("--no-captions", action="store_true", help="don't extract captions")
+    p.add_argument("--caption-boxes", action="store_true",
+                   help="captions are phrases in solid colour boxes (e.g. white on red), plus same-colour title cards")
     a = p.parse_args(argv)
     run(a.video, a.out, Options(
         width=a.width, ocr_lang=a.ocr_lang, ocr=not a.no_ocr, overlay_zone=a.overlay_zone,
-        caption_band=a.caption_band, no_overlay=a.no_overlay, no_captions=a.no_captions))
+        caption_band=a.caption_band, no_overlay=a.no_overlay, no_captions=a.no_captions,
+        caption_boxes=a.caption_boxes))
     return 0
 
 

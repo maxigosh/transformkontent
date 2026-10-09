@@ -10,7 +10,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from . import compose, ocr
+from . import boxcaps, compose, ocr
 from .captions import CaptionDetector, group_words, measure_style, merge_repeats, ocr_image
 from .layout import scan
 from .media import Encoder, even, extract_audio, probe, read_frames, read_frames_at
@@ -27,6 +27,7 @@ class Options:
     caption_band: tuple[float, float] | None = None
     no_overlay: bool = False
     no_captions: bool = False
+    caption_boxes: bool = False      # phrase captions in solid colour boxes (white on red, ...)
 
 
 def _log(msg: str) -> None:
@@ -50,8 +51,10 @@ def run(src: str, out_dir: str, opt: Options = Options(), log=_log) -> dict:
     log("pass A: scanning layout (overlay zone, caption band, cuts)…")
     layout = scan(info, progress=lambda n: None)
     n_frames = layout.n_frames
-    oz = None if opt.no_overlay else (opt.overlay_zone or layout.overlay_zone)
-    cb = None if opt.no_captions else (opt.caption_band or layout.caption_band)
+    # caption boxes are solid colour graphics, so the overlay finder would take them for a banner
+    oz = None if opt.no_overlay or (opt.caption_boxes and not opt.overlay_zone) \
+        else (opt.overlay_zone or layout.overlay_zone)
+    cb = None if opt.no_captions or opt.caption_boxes else (opt.caption_band or layout.caption_band)
     log(f"  overlay zone: {oz and tuple(round(v, 3) for v in oz)} (hue {layout.overlay_hue}), "
         f"caption band: {cb and tuple(round(v, 3) for v in cb)}, cuts at "
         f"{[round(c / fps, 2) for c in layout.cuts]}")
@@ -71,6 +74,7 @@ def run(src: str, out_dir: str, opt: Options = Options(), log=_log) -> dict:
     if cb:
         c0, c1 = int(cb[0] * H), int(np.ceil(cb[1] * H))
         det = CaptionDetector(W, H, (c0, c1))
+    boxes = boxcaps.BoxCaptionTracker(W, H) if opt.caption_boxes and not opt.no_captions else None
     cleaner = PlateCleaner(H, fps, layout.cuts)
     plate_enc = Encoder(assets / "plate.mp4", W, H, fps, "h264", "bgr24")
 
@@ -91,6 +95,8 @@ def run(src: str, out_dir: str, opt: Options = Options(), log=_log) -> dict:
             ov_enc.write(np.dstack([zone, alpha]))
             sigs.append(signature(zone, alpha))
             ov = (z0, np.maximum(alpha, matter.specks(zone)))
+        if boxes is not None:
+            boxes.push(i, frame)
         if det is not None:
             cf, mask = det.detect(i, frame[c0:c1])
             if cf is not None:
@@ -134,6 +140,13 @@ def run(src: str, out_dir: str, opt: Options = Options(), log=_log) -> dict:
 
     # ---- captions ----------------------------------------------------------------
     captions = None
+    if boxes is not None:
+        captions = boxcaps.extract(boxes, src, W, H, fps, opt.ocr_lang, opt.ocr, log)
+        if captions:
+            captions["notes"] = boxcaps.find_notes(src, W, H, fps, opt.ocr_lang, opt.ocr, log)
+            (out / "captions.json").write_text(json.dumps(
+                [{"id": p["id"], "text": p["text"], "start": p["start"], "end": p["end"]} for p in captions["phrases"]],
+                ensure_ascii=False, indent=1))
     if det is not None and cap_frames:
         words = group_words(cap_frames, fps)
         log(f"captions: {len(words)} word segments")

@@ -25,6 +25,9 @@ from .tts import SR, CachedTTS, ElevenLabsTTS, MockTTS, synthesize_fitted
 class LocalizeOptions:
     logo: str | None = None
     logo_style: str = "ticker"           # ticker: turning green band with a running ticker | float: animated logo
+                                         # | footer: the logo standing still at the bottom of the frame
+    header_panels: list[str] | None = None  # images turned through on a 3D prism at the top
+    header_hold: float = 4.0             # seconds per header panel when the source had no banner rhythm
     brand: str | None = None             # ticker text, e.g. the brand name
     brand_url: str | None = None         # ticker text, e.g. the site
     lang: str = "English"
@@ -38,6 +41,45 @@ class LocalizeOptions:
     dub: bool = True                     # False: keep the original audio, only translate the captions
     remove_overlay: bool = False         # drop the extracted overlay (the clean plate has it painted out)
     keep_ambience: bool = True           # with a dub: keep the original track between phrases (laughter, room)
+
+
+def _banner_beats(layers: dict) -> list[float]:
+    ov = layers.get("overlay")
+    if not ov:
+        return []
+    return [seg["start"] for seg in ov["timeline"] if seg["kind"] == "state" and seg["start"] > 0.5]
+
+
+def _header(proj: Path, opt: "LocalizeOptions", layers: dict, W: int, H: int, D: float) -> dict:
+    """Copy the header panels into the project and time their turns: on the original
+    banner's changes when there was one, otherwise every `header_hold` seconds."""
+    import cv2
+
+    panels, aspects = [], []
+    for i, src in enumerate(opt.header_panels, 1):
+        src = Path(src)
+        img = cv2.imread(str(src), cv2.IMREAD_UNCHANGED)
+        if img is None:
+            raise SystemExit(f"cannot read header panel {src}")
+        dst = proj / "assets" / f"header_{i}{src.suffix.lower()}"
+        dst.write_bytes(src.read_bytes())
+        panels.append(f"assets/{dst.name}")
+        aspects.append(img.shape[1] / img.shape[0])
+    ov = layers.get("overlay")
+    zone = ov["zone_px"] if ov else [0, int(H * 0.04), W, int(H * 0.27)]
+    beats = _banner_beats(layers)
+    if not beats:
+        hold = max(1.5, opt.header_hold)
+        beats = [round(t, 3) for t in _frange(hold, D - 1.0, hold)]
+    # the widest panel sets the face shape: the others are cropped top/bottom, never at the sides
+    return {"panels": panels, "aspect": round(max(aspects), 4), "zone_px": zone, "beats": beats}
+
+
+def _frange(a: float, b: float, step: float):
+    t = a
+    while t < b:
+        yield t
+        t += step
 
 
 def restyle(project: str, opt: LocalizeOptions, log=None) -> dict:
@@ -81,14 +123,16 @@ def run(project: str, opt: LocalizeOptions, log=_log) -> dict:
         prepared = logo_mod.prepare(src, proj / "assets")
         ov = layers.get("overlay")
         zone = ov["zone_px"] if ov else [0, int(H * 0.06), W, int(H * 0.26)]
-        beats = [0.0]
-        if ov:
-            beats += [seg["start"] for seg in ov["timeline"]
-                      if seg["kind"] == "state" and seg["start"] > 0.5]
+        beats = [0.0] + _banner_beats(layers)
         layers["logo"] = {**prepared, "zone_px": zone, "beats": sorted(set(beats)), "style": opt.logo_style,
                           "brand": opt.brand, "url": opt.brand_url}
         parts = "mark + wordmark animated separately" if prepared["mark"] else "single piece"
         log(f"logo ({opt.logo_style}): {src.name} in zone y={zone[1]}..{zone[3]}, {parts}, {len(beats)} pop beats")
+
+    if opt.header_panels:
+        layers["header"] = _header(proj, opt, layers, W, H, D)
+        hd = layers["header"]
+        log(f"header: {len(hd['panels'])} panels, {len(hd['beats'])} turns, zone y={hd['zone_px'][1]}..{hd['zone_px'][3]}")
 
     ov = layers.get("overlay")
     if ov:
@@ -104,6 +148,8 @@ def run(project: str, opt: LocalizeOptions, log=_log) -> dict:
     caps = layers.get("captions")
     if not caps:
         raise RuntimeError("no captions in this project — nothing to translate")
+    if caps.get("kind") == "box":
+        return _localize_boxes(proj, m, opt, log)
     src_words = caps.get("source_words") or caps["words"]
     cuts = [s["start"] for s in m.get("shots", [])[1:]]
     phrases = phrases_from_words(src_words, cuts)
@@ -155,6 +201,96 @@ def run(project: str, opt: LocalizeOptions, log=_log) -> dict:
     (proj / f"captions.{opt.lang_code}.json").write_text(json.dumps(new_words, ensure_ascii=False, indent=1))
     compose.write_project(proj, m)
     log(f"done: {len(phrases)} phrases, {len(new_words)} caption words → {proj / 'index.html'}")
+    return m
+
+
+def _translate(proj: Path, phrases: list[dict], opt: "LocalizeOptions", log) -> dict[str, str]:
+    tr_path = proj / f"translation.{opt.lang_code}.json"
+    if opt.translation:
+        tr = load_translation(opt.translation)
+        log(f"translation: {len(tr)} phrases from {opt.translation}")
+    elif tr_path.exists():
+        tr = load_translation(tr_path)
+        log(f"translation: reusing {tr_path.name} (delete it to re-translate)")
+    else:
+        log(f"translation: {len(phrases)} phrases → {opt.lang} via Claude…")
+        tr = translate_claude(phrases, opt.lang)
+    return tr
+
+
+def _norm(text: str) -> str:
+    import re
+    return " ".join(re.findall(r"[^\W_]+", text.lower()))
+
+
+def _localize_boxes(proj: Path, m: dict, opt: "LocalizeOptions", log) -> dict:
+    """Phrase captions in boxes: each box is translated on its own (it stays on screen
+    exactly where and when the original was, covering it), and the speech is dubbed in
+    runs of boxes so the voice flows over a whole sentence."""
+    layers = m["layers"]
+    D = m["source"]["duration"]
+    caps = layers["captions"]
+    boxes = caps["phrases"]
+    phrases = []
+    for i, b in enumerate(boxes):
+        nxt = boxes[i + 1]["start"] if i + 1 < len(boxes) else None
+        phrases.append({"id": b["id"], "start": b["start"], "end": b["end"], "src": b["text"], "slot_end": nxt,
+                        "card": b.get("card", False)})
+    notes = caps.get("notes") or []
+    for n in notes:
+        phrases.append({"id": n["id"], "start": n["start"], "end": n["end"], "src": n["text"], "slot_end": n["end"],
+                        "note": True})
+    tr = _translate(proj, phrases, opt, log)
+    for p, b in zip(phrases, boxes + notes):
+        p["text"] = b["text_out"] = tr.get(b["id"], "")
+    tr_path = proj / f"translation.{opt.lang_code}.json"
+    tr_path.write_text(json.dumps(phrases, ensure_ascii=False, indent=1))
+    if opt.translate_only:
+        log(f"wrote {tr_path} — review/edit it, then run again without --translate-only")
+        return m
+
+    if opt.dub:
+        cuts = [s["start"] for s in m.get("shots", [])[1:]]
+        groups: list[dict] = []
+        for p in phrases:
+            text = p["text"].strip()
+            if not text or p.get("note"):
+                continue   # notices are read, not spoken
+            g = groups[-1] if groups else None
+            if g is not None:
+                last, now = _norm(g["pieces"][-1]), _norm(text)
+                if now.startswith(last) and p["start"] - g["end"] < 0.45:
+                    g["pieces"][-1] = text          # a box that builds up word by word: say the full line once
+                    g["end"] = p["end"]
+                    continue
+                if now and any(now in _norm(x) for x in g["pieces"][-2:]) and p["start"] - g["end"] < 0.45:
+                    g["end"] = max(g["end"], p["end"])   # a fragment or repeat of what was just said
+                    continue
+            joins = (g is not None and p["start"] - g["end"] < 0.45 and not p["card"] and not g["card"]
+                     and not any(g["end"] <= c <= p["start"] + 1e-3 for c in cuts)
+                     and len(" ".join(g["pieces"]).split()) + len(text.split()) <= 16)
+            if joins:
+                g["pieces"].append(text)
+                g["end"] = p["end"]
+            else:
+                groups.append({"id": f"g{len(groups)}", "start": p["start"], "end": p["end"],
+                               "pieces": [text], "card": p["card"]})
+        for g in groups:
+            g["text"] = " ".join(g.pop("pieces"))
+        for i, g in enumerate(groups):
+            g["slot_end"] = groups[i + 1]["start"] if i + 1 < len(groups) else None
+        bed = None
+        if opt.keep_ambience and layers.get("source_audio"):
+            bed = _ambience_bed(proj / layers["source_audio"], phrases, D)
+            log("ambience: original track kept between phrases, muted under speech")
+        _, voice_rel = _dub(proj, groups, D, opt, log, bed)
+        layers["audio"] = {"src": voice_rel, "label": f"{opt.lang} voice-over ({opt.tts})"}
+        log(f"dub: {len(groups)} spoken runs over {len(boxes)} boxes")
+    caps["lang"] = opt.lang_code
+    m["lang"] = opt.lang_code
+    (proj / "elements.json").write_text(json.dumps(m, ensure_ascii=False, indent=1))
+    compose.write_project(proj, m)
+    log(f"done: {len(boxes)} boxed captions → {proj / 'index.html'}")
     return m
 
 
