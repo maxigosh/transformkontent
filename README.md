@@ -190,6 +190,12 @@ python -m vidextract localize work/reel --logo logo.png --logo-style footer \
   «“кавычках”» выделяется золотым. `--header-panels a.png b.png …` вместо этого крутит картинки на 3D-кубике.
 - `--logo-style footer` ставит логотип неподвижно внизу кадра.
 
+**Озвучка без ElevenLabs:** если на сервере запущен [VoiceStudio](https://github.com/debpalash/VoiceStudio),
+`TTS=voicestudio` озвучивает через его OpenAI-совместимый `POST /v1/audio/speech` (по умолчанию
+`http://127.0.0.1:3900`, меняется через `VOICESTUDIO_URL`). `VOICE` — id или имя голосового профиля
+(список: `curl 127.0.0.1:3900/v1/audio/voices`). Тайминги слов VoiceStudio не отдаёт, они оцениваются по
+звуку.
+
 На сервере одной командой:
 
 ```bash

@@ -103,6 +103,51 @@ class ElevenLabsTTS:
         return base64.b64decode(data["audio_base64"]), words
 
 
+class VoiceStudioTTS:
+    """A local VoiceStudio server (github.com/debpalash/VoiceStudio) through its
+    OpenAI-compatible POST /v1/audio/speech. It returns audio only, so word timings
+    are estimated: the voiced span is found by energy and shared out by word length."""
+
+    def __init__(self, voice: str | None = None, model: str | None = None, url: str | None = None,
+                 language: str = "en"):
+        self.url = (url or os.environ.get("VOICESTUDIO_URL") or "http://127.0.0.1:3900").rstrip("/")
+        self.voice = voice or os.environ.get("VOICESTUDIO_VOICE") or "default"
+        self.model = model or os.environ.get("VOICESTUDIO_MODEL") or "omnivoice"
+        self.language = language
+
+    def speak(self, text: str, speed: float = 1.0) -> tuple[bytes, list[dict]]:
+        body = {"model": self.model, "input": text, "voice": self.voice, "response_format": "wav",
+                "speed": round(min(1.6, max(0.6, speed)), 3), "language": self.language}
+        req = urllib.request.Request(self.url + "/v1/audio/speech", data=json.dumps(body).encode(),
+                                     headers={"Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=1800) as r:
+                audio = r.read()
+        except urllib.error.HTTPError as e:
+            raise RuntimeError(f"VoiceStudio {e.code}: {e.read().decode(errors='replace')[:500]}") from None
+        except urllib.error.URLError as e:
+            raise RuntimeError(f"VoiceStudio is not reachable at {self.url} ({e.reason})") from None
+        return audio, estimate_words(text, decode_audio(audio))
+
+
+def estimate_words(text: str, pcm: np.ndarray) -> list[dict]:
+    """Word timings for audio that came without them: the voiced span (by short-time
+    energy) is split between the words in proportion to their length."""
+    words = text.split()
+    if not words:
+        return []
+    hop = int(0.01 * SR)
+    n = max(1, len(pcm) // hop)
+    energy = np.sqrt(np.add.reduceat(pcm[: n * hop] ** 2, np.arange(0, n * hop, hop)) / hop) if len(pcm) >= hop \
+        else np.zeros(1)
+    voiced = np.nonzero(energy > max(1e-4, energy.max() * 0.06))[0]
+    t0, t1 = (voiced[0] * hop / SR, (voiced[-1] + 1) * hop / SR) if len(voiced) else (0.0, len(pcm) / SR)
+    weights = np.array([len(w) + 2 for w in words], float)
+    edges = t0 + (t1 - t0) * np.concatenate([[0], np.cumsum(weights) / weights.sum()])
+    return [{"text": w, "start": round(float(a), 3), "end": round(float(b) - 0.02, 3)}
+            for w, a, b in zip(words, edges[:-1], edges[1:])]
+
+
 class CachedTTS:
     """Keeps every synthesized take on disk, so re-running a project re-uses the
     same audio instead of paying for (and slightly changing) it again."""

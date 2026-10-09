@@ -18,7 +18,7 @@ from . import compose
 from . import logo as logo_mod
 from .media import ffmpeg_exe
 from .translate import load_translation, phrases_from_words, translate_claude, translate_free
-from .tts import SR, CachedTTS, ElevenLabsTTS, MockTTS, synthesize_fitted
+from .tts import SR, CachedTTS, ElevenLabsTTS, MockTTS, VoiceStudioTTS, synthesize_fitted
 
 
 @dataclass
@@ -37,7 +37,7 @@ class LocalizeOptions:
     source_lang: str = "ru"              # language of the original captions (for the free translator)
     translator: str = "free"             # free: Google's free endpoint (Argos offline as fallback) | claude
     translate_only: bool = False         # stop after writing translation.<code>.json
-    tts: str = "elevenlabs"              # elevenlabs | mock
+    tts: str = "elevenlabs"              # elevenlabs | voicestudio (local server) | mock
     voice: str | None = None
     tts_model: str | None = None
     min_gap: float = 0.08                # seconds of air between dubbed phrases
@@ -392,6 +392,9 @@ def _dub(proj: Path, phrases: list[dict], D: float, opt: LocalizeOptions, log,
     """Voice each phrase in its time slot; returns word timings and the voice-over path."""
     if opt.tts == "mock":
         tts = MockTTS()
+    elif opt.tts == "voicestudio":
+        tts = VoiceStudioTTS(voice=opt.voice, model=opt.tts_model, language=opt.lang_code)
+        tts = CachedTTS(tts, proj / "assets" / "tts_cache", f"voicestudio|{tts.voice}|{tts.model}")
     else:
         kw = {}
         if opt.voice:

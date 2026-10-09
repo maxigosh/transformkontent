@@ -12,11 +12,12 @@
 #   LOGO_STYLE=ticker                   ticker: green band with a running ticker that turns like a 3D box
 #                                       on the original banner rhythm; float: the logo itself rolls in and floats
 #   BRAND=PlantOgram BRAND_URL=plantogram.com.au   ticker text (defaults match the default logo)
-#   VOICE=YLbQE9U7P1K6rBNJWNSv          ElevenLabs voice_id
+#   VOICE=YLbQE9U7P1K6rBNJWNSv          ElevenLabs voice_id (with TTS=voicestudio: a voice profile id or name)
 #   TRANSLATION=path.json               ready translation; without it the text is translated for free
 #                                       (Google's free endpoint, Argos Translate offline as a fallback)
 #   TRANSLATOR=free                     or "claude" (needs ANTHROPIC_API_KEY)
-#   TTS=elevenlabs                      or "mock" for an offline dry run with a test tone
+#   TTS=elevenlabs                      or "voicestudio" (local VoiceStudio server, free; VOICESTUDIO_URL,
+#                                       default http://127.0.0.1:3900), or "mock" for a dry run with a test tone
 #   WORK=work/<video name>              project directory (reused if it exists; FRESH=1 to redo)
 #   KEEP_AMBIENCE=1                     0 = drop the original track completely
 #   CAPTIONS=outline                    outline: one white outlined word at a time (default);
@@ -44,8 +45,8 @@ HEADER_TEXTS=${HEADER_TEXTS:-}
 TRANSLATOR=${TRANSLATOR:-free}
 BRAND=${BRAND:-}
 BRAND_URL=${BRAND_URL:-}
-VOICE=${VOICE:-YLbQE9U7P1K6rBNJWNSv}
 TTS=${TTS:-elevenlabs}
+if [[ $TTS == voicestudio ]]; then VOICE=${VOICE:-default}; else VOICE=${VOICE:-YLbQE9U7P1K6rBNJWNSv}; fi
 [[ -n ${WORK:-} ]] && WORK_SET=1
 WORK=${WORK:-$ROOT/work/$(basename "${VIDEO%.*}")}
 TRANSLATION=${TRANSLATION:-}
@@ -74,6 +75,10 @@ RESTYLE=0
 if [[ -z $HEADER_PANELS && -z $HEADER_TEXTS && $REDUB != 1 && ${FRESH:-0} != 1 && -f $WORK/assets/voice_en.m4a ]] \
    && grep -q '"logo"' "$WORK/elements.json" 2>/dev/null; then
   RESTYLE=1
+fi
+if [[ $TTS == voicestudio && $RESTYLE == 0 ]]; then
+  VS=${VOICESTUDIO_URL:-http://127.0.0.1:3900}
+  curl -sf "$VS/health" >/dev/null || die "VoiceStudio does not answer at $VS (docker ps; VOICESTUDIO_URL=...)"
 fi
 if [[ $TTS == elevenlabs && $RESTYLE == 0 ]]; then
   [[ -n ${ELEVENLABS_API_KEY:-} ]] || die "set ELEVENLABS_API_KEY (or TTS=mock for a dry run)"

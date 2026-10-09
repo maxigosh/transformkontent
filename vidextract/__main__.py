@@ -45,10 +45,12 @@ def localize_main(argv: list[str]) -> int:
                         "claude: Claude API (needs ANTHROPIC_API_KEY)")
     p.add_argument("--source-lang", default="ru", help="language code of the original captions (default ru)")
     p.add_argument("--translate-only", action="store_true", help="write translation.<code>.json and stop")
-    p.add_argument("--tts", choices=["elevenlabs", "mock"], default="elevenlabs",
-                   help="voice engine; mock = offline test tone (default elevenlabs, needs ELEVENLABS_API_KEY)")
-    p.add_argument("--voice", help="ElevenLabs voice_id")
-    p.add_argument("--tts-model", help="ElevenLabs model_id (default eleven_multilingual_v2)")
+    p.add_argument("--tts", choices=["elevenlabs", "voicestudio", "mock"], default="elevenlabs",
+                   help="voice engine: elevenlabs (needs ELEVENLABS_API_KEY), voicestudio (a local VoiceStudio server, "
+                        "VOICESTUDIO_URL, default http://127.0.0.1:3900), or mock (offline test tone)")
+    p.add_argument("--voice", help="ElevenLabs voice_id, or a VoiceStudio voice profile id or name")
+    p.add_argument("--tts-model", help="ElevenLabs model_id (default eleven_multilingual_v2) or VoiceStudio engine "
+                                       "(default omnivoice)")
     p.add_argument("--remove-overlay", action="store_true",
                    help="remove the extracted overlay (sponsor banner) without putting a logo in its place")
     p.add_argument("--no-ambience", action="store_true",
