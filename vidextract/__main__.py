@@ -30,13 +30,20 @@ def localize_main(argv: list[str]) -> int:
                         "footer: the logo stands still at the bottom of the frame")
     p.add_argument("--header-panels", nargs="+", metavar="IMG",
                    help="header images shown at the top on a turning 3D prism (4 images = a box)")
+    p.add_argument("--header-texts", metavar="FILE",
+                   help="text file, one tagline per line: shown one at a time in a phone-notification card at the "
+                        "top (a word in “quotes” gets the accent colour)")
     p.add_argument("--header-hold", type=float, default=4.0,
                    help="seconds per header panel when the source had no banner to take the rhythm from")
     p.add_argument("--brand", help="ticker text: brand name (without it the wordmark image runs instead)")
     p.add_argument("--brand-url", help="ticker text: site address, e.g. example.com")
     p.add_argument("--lang", default="English", help="target language name (default English)")
     p.add_argument("--lang-code", default="en", help="short code used in file names (default en)")
-    p.add_argument("--translation", help="use this translation JSON ([{id, text}]) instead of calling Claude")
+    p.add_argument("--translation", help="use this translation JSON ([{id, text}]) instead of translating")
+    p.add_argument("--translator", choices=["free", "claude"], default="free",
+                   help="free: Google Translate's free endpoint, Argos Translate offline as a fallback (default); "
+                        "claude: Claude API (needs ANTHROPIC_API_KEY)")
+    p.add_argument("--source-lang", default="ru", help="language code of the original captions (default ru)")
     p.add_argument("--translate-only", action="store_true", help="write translation.<code>.json and stop")
     p.add_argument("--tts", choices=["elevenlabs", "mock"], default="elevenlabs",
                    help="voice engine; mock = offline test tone (default elevenlabs, needs ELEVENLABS_API_KEY)")
@@ -51,7 +58,8 @@ def localize_main(argv: list[str]) -> int:
     a = p.parse_args(argv)
     localize(a.project, LocalizeOptions(
         logo=a.logo, logo_style=a.logo_style, brand=a.brand, brand_url=a.brand_url,
-        header_panels=a.header_panels, header_hold=a.header_hold, lang=a.lang, lang_code=a.lang_code, translation=a.translation,
+        header_panels=a.header_panels, header_hold=a.header_hold,
+        header_texts=[ln.strip() for ln in open(a.header_texts, encoding="utf-8") if ln.strip()] if a.header_texts else None, lang=a.lang, lang_code=a.lang_code, translation=a.translation, translator=a.translator, source_lang=a.source_lang,
         translate_only=a.translate_only, tts=a.tts, voice=a.voice, tts_model=a.tts_model,
         dub=not a.subtitles_only, remove_overlay=a.remove_overlay, keep_ambience=not a.no_ambience))
     return 0

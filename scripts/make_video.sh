@@ -13,12 +13,16 @@
 #                                       on the original banner rhythm; float: the logo itself rolls in and floats
 #   BRAND=PlantOgram BRAND_URL=plantogram.com.au   ticker text (defaults match the default logo)
 #   VOICE=YLbQE9U7P1K6rBNJWNSv          ElevenLabs voice_id
-#   TRANSLATION=path.json               ready translation; without it Claude translates (ANTHROPIC_API_KEY)
+#   TRANSLATION=path.json               ready translation; without it the text is translated for free
+#                                       (Google's free endpoint, Argos Translate offline as a fallback)
+#   TRANSLATOR=free                     or "claude" (needs ANTHROPIC_API_KEY)
 #   TTS=elevenlabs                      or "mock" for an offline dry run with a test tone
 #   WORK=work/<video name>              project directory (reused if it exists; FRESH=1 to redo)
 #   KEEP_AMBIENCE=1                     0 = drop the original track completely
 #   CAPTIONS=outline                    outline: one white outlined word at a time (default);
 #                                       boxes: phrases in solid colour boxes (white on red) + title cards
+#   HEADER_TEXTS=file.txt               taglines, one per line, shown in turn in a phone-notification card
+#                                       at the top (a word in “quotes” is highlighted)
 #   HEADER_PANELS="a.png b.png ..."     images turned through on a 3D box at the top (4 = a box);
 #                                       use with LOGO_STYLE=footer to put the logo at the bottom
 #   REDUB=0                             a project that is already dubbed only gets its brand block
@@ -36,6 +40,8 @@ fi
 LOGO_STYLE=${LOGO_STYLE:-ticker}
 CAPTIONS=${CAPTIONS:-outline}
 HEADER_PANELS=${HEADER_PANELS:-}
+HEADER_TEXTS=${HEADER_TEXTS:-}
+TRANSLATOR=${TRANSLATOR:-free}
 BRAND=${BRAND:-}
 BRAND_URL=${BRAND_URL:-}
 VOICE=${VOICE:-YLbQE9U7P1K6rBNJWNSv}
@@ -58,13 +64,14 @@ fi
 OUT=$(abs "$OUT"); LOGO=$(abs "$LOGO"); WORK=$(abs "$WORK")
 [[ -z $URL ]] && VIDEO=$(abs "$VIDEO")
 [[ -n $TRANSLATION ]] && TRANSLATION=$(abs "$TRANSLATION")
+[[ -n $HEADER_TEXTS ]] && HEADER_TEXTS=$(abs "$HEADER_TEXTS")
 say() { printf '\n\033[1m==> %s\033[0m\n' "$*"; }
 die() { printf '\033[31merror:\033[0m %s\n' "$*" >&2; exit 1; }
 
 [[ -n $URL || -f $VIDEO ]] || die "no such video: $VIDEO (copy it to the server, e.g. scp, or pass a https:// link)"
 [[ -f $LOGO ]] || die "no such logo: $LOGO"
 RESTYLE=0
-if [[ -z $HEADER_PANELS && $REDUB != 1 && ${FRESH:-0} != 1 && -f $WORK/assets/voice_en.m4a ]] \
+if [[ -z $HEADER_PANELS && -z $HEADER_TEXTS && $REDUB != 1 && ${FRESH:-0} != 1 && -f $WORK/assets/voice_en.m4a ]] \
    && grep -q '"logo"' "$WORK/elements.json" 2>/dev/null; then
   RESTYLE=1
 fi
@@ -73,8 +80,9 @@ if [[ $TTS == elevenlabs && $RESTYLE == 0 ]]; then
   (LC_ALL=C; [[ $ELEVENLABS_API_KEY =~ ^[A-Za-z0-9_-]{20,}$ ]]) \
     || die "ELEVENLABS_API_KEY does not look like a key (expected something like sk_..., not the placeholder text)"
 fi
-if [[ $RESTYLE == 0 && -z $TRANSLATION && -z ${ANTHROPIC_API_KEY:-} && ! -f $WORK/translation.en.json ]]; then
-  die "set ANTHROPIC_API_KEY for automatic translation, or TRANSLATION=path/to/translation.json"
+if [[ $TRANSLATOR == claude && $RESTYLE == 0 && -z $TRANSLATION && -z ${ANTHROPIC_API_KEY:-} \
+      && ! -f $WORK/translation.en.json ]]; then
+  die "TRANSLATOR=claude needs ANTHROPIC_API_KEY (or leave TRANSLATOR unset for the free translator)"
 fi
 
 cd "$ROOT"
@@ -123,7 +131,9 @@ if [[ $RESTYLE == 1 ]]; then
   python -m vidextract restyle "$WORK" --logo-style "$LOGO_STYLE" "${brand[@]}"
 else
   say "2/3 logo, voice removal, translation, ElevenLabs dub, English captions"
-  args=(localize "$WORK" --logo "$LOGO" --logo-style "$LOGO_STYLE" "${brand[@]}" --voice "$VOICE" --tts "$TTS")
+  args=(localize "$WORK" --logo "$LOGO" --logo-style "$LOGO_STYLE" "${brand[@]}" --voice "$VOICE" --tts "$TTS"
+        --translator "$TRANSLATOR")
+  [[ -n $HEADER_TEXTS ]] && args+=(--header-texts "$HEADER_TEXTS")
   [[ -n $TRANSLATION ]] && args+=(--translation "$TRANSLATION")
   [[ $KEEP_AMBIENCE == 0 ]] && args+=(--no-ambience)
   if [[ -n $HEADER_PANELS ]]; then

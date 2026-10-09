@@ -91,3 +91,61 @@ def load_translation(path: str | Path) -> dict[str, str]:
     """A JSON list of {"id", "text"} (or {"id", "en"}) — e.g. an edited translation.json."""
     data = json.loads(Path(path).read_text())
     return {d["id"]: (d.get("text") or d.get("en") or "").strip() for d in data}
+
+
+# ---- free translation (no key, no account) -----------------------------------------------
+GTX_URL = "https://translate.googleapis.com/translate_a/single"
+
+
+def _gtx(text: str, sl: str, tl: str) -> str:
+    """Google Translate's free web endpoint (the one browser extensions use)."""
+    import time
+    import urllib.parse
+    import urllib.request
+
+    body = urllib.parse.urlencode({"q": text}).encode()
+    url = GTX_URL + "?" + urllib.parse.urlencode({"client": "gtx", "sl": sl, "tl": tl, "dt": "t"})
+    for attempt in range(4):
+        try:
+            req = urllib.request.Request(url, data=body, headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req, timeout=30) as r:
+                data = json.loads(r.read())
+            return "".join(seg[0] for seg in data[0] if seg and seg[0]).strip()
+        except Exception:
+            if attempt == 3:
+                raise
+            time.sleep(1.5 * (attempt + 1))
+    return ""
+
+
+def _argos(texts: list[str], sl: str, tl: str) -> list[str]:
+    """Offline fallback: Argos Translate (free, runs locally; ~100 MB model on first use)."""
+    try:
+        import argostranslate.package as pkg
+        import argostranslate.translate as tr
+    except ImportError:
+        raise RuntimeError("Google Translate is unreachable and the offline fallback is not installed: "
+                           "pip install argostranslate (or pass --translation file.json)") from None
+
+    if not any(l.code == sl for l in tr.get_installed_languages()):
+        pkg.update_package_index()
+        p = next(p for p in pkg.get_available_packages() if p.from_code == sl and p.to_code == tl)
+        pkg.install_from_path(p.download())
+    return [tr.translate(t, sl, tl) for t in texts]
+
+
+def translate_free(texts: list[str], sl: str = "ru", tl: str = "en", log=print) -> list[str]:
+    """Translate a list of sentences for free: Google's web endpoint, or Argos offline
+    when that is unreachable."""
+    import time
+
+    out: list[str] = []
+    try:
+        for t in texts:
+            out.append(_gtx(t, sl, tl) if t.strip() else "")
+            time.sleep(0.15)
+        log(f"translation: {len(texts)} sentences via Google Translate (free endpoint)")
+        return out
+    except Exception as e:
+        log(f"translation: Google unreachable ({e.__class__.__name__}), using Argos Translate offline")
+        return _argos(texts, sl, tl)

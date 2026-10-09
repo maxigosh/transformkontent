@@ -71,7 +71,7 @@ def _sig_iou(a: np.ndarray, b: np.ndarray) -> float:
 
 
 class BoxCaptionTracker:
-    def __init__(self, W: int, H: int, hue_ranges=((0, 14), (172, 180)), band=(0.2, 0.96)):
+    def __init__(self, W: int, H: int, hue_ranges=((0, 14), (172, 180)), band=(0.04, 0.97)):
         self.W, self.H = W, H
         self.hue_ranges = hue_ranges
         self.y0, self.y1 = int(band[0] * H), int(band[1] * H)
@@ -266,6 +266,19 @@ def has_text(text: str, lang: str) -> bool:
     return any(len(set(w.lower())) > 1 for w in words)
 
 
+def _renumber_cards(phrases: list[dict]) -> None:
+    """Numbered title cards ("МИФ №1", "МИФ №2", ...) count up in order; OCR misreads the
+    № sign and the digit after it more than anything else, so fix them from the sequence."""
+    pat = re.compile(r"^(.*?)\s*(?:№|N[°oо2]?|Ne)\s*(\d+)\s*$")
+    cards = [(p, pat.match(p["text"])) for p in phrases if p.get("card")]
+    cards = [(p, m) for p, m in cards if m]
+    if len(cards) < 2:
+        return
+    first = int(cards[0][1].group(2)) if cards[0][1].group(2) in ("0", "1") else 1
+    for k, (p, m) in enumerate(cards):
+        p["text"] = f"{m.group(1)} №{first + k}"
+
+
 def extract(tracker: BoxCaptionTracker, src: str, W: int, H: int, fps: float, lang: str, use_ocr: bool, log) -> dict | None:
     """Segments → caption phrases with text, cover tracks and the measured box style."""
     from . import ocr
@@ -306,6 +319,7 @@ def extract(tracker: BoxCaptionTracker, src: str, W: int, H: int, fps: float, la
             "lines": max(1, round(s.rep().h / max(1.0, style["font_px"] * 1.45))),
             "track": track_of(s, fps, pad),
         })
+    _renumber_cards(phrases)
     log(f"captions (boxes): {len(phrases)} phrases with text, {sum(p['card'] for p in phrases)} title cards; "
         f"{skipped} boxes without words left as they are")
     return {"kind": "box", "style": style, "phrases": phrases}

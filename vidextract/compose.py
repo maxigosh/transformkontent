@@ -424,6 +424,108 @@ def _panels_markup(header: dict, W: int) -> tuple[str, str]:
     return css, markup
 
 
+def _notify_text(text: str) -> str:
+    """Escape, and set the “quoted” word in the accent colour, like the brand's taglines."""
+    import re
+    out = html.escape(text)
+    return re.sub(r"(“[^”]+”|&quot;[^&]+&quot;)", r'<span class="nt-accent">\1</span>', out)
+
+
+def _notify_markup(header: dict, W: int) -> tuple[str, str]:
+    """A phone-notification card at the top: the brand icon, the brand name, and one
+    tagline at a time. Each tagline drops in, stays, and slides back up."""
+    z = header["zone_px"]
+    cw = round(W * 0.9)
+    fs = round(W * 0.05)
+    icon = header.get("icon")
+    cards = []
+    for i, text in enumerate(header["texts"]):
+        icon_html = f'<span class="nt-icon" style="background-image: url(&quot;{icon}&quot;)"></span>' if icon else ""
+        cards.append(
+            f'        <div class="nt-card" id="nt-{i}">{icon_html}<span class="nt-body">'
+            f'<span class="nt-head"><span class="nt-app">{html.escape(header.get("app", ""))}</span>'
+            f'<span class="nt-now">now</span></span><span class="nt-text">{_notify_text(text)}</span></span></div>')
+    css = f"""
+      #nt-wrap {{
+        position: absolute;
+        left: {(W - cw) // 2}px;
+        top: {z[1] + round(W * 0.02)}px;
+        width: {cw}px;
+        z-index: 5;
+      }}
+      .nt-card {{
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 100%;
+        box-sizing: border-box;
+        display: flex;
+        align-items: center;
+        gap: {round(W * 0.03)}px;
+        padding: {round(W * 0.03)}px {round(W * 0.035)}px;
+        border-radius: {round(W * 0.05)}px;
+        background: rgba(246, 246, 244, 0.95);
+        box-shadow: 0 {round(W * 0.02)}px {round(W * 0.05)}px rgba(0, 0, 0, 0.4);
+        font-family: "{FONT_FAMILY}", sans-serif;
+      }}
+      .nt-icon {{
+        flex: none;
+        width: {round(W * 0.13)}px;
+        height: {round(W * 0.13)}px;
+        border-radius: 50%;
+        background: #fff center / contain no-repeat;
+      }}
+      .nt-body {{
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+        min-width: 0;
+        gap: {round(W * 0.006)}px;
+      }}
+      .nt-head {{
+        display: flex;
+        justify-content: space-between;
+        font-size: {round(fs * 0.7)}px;
+        line-height: 1.1;
+      }}
+      .nt-app {{
+        font-weight: 600;
+        color: #1b1b1b;
+      }}
+      .nt-now {{
+        color: #808080;
+      }}
+      .nt-text {{
+        font-weight: 800;
+        font-size: {fs}px;
+        line-height: 1.08;
+        color: {header.get("color", "#1f6b3a")};
+      }}
+      .nt-accent {{
+        color: {header.get("accent", "#c08a1e")};
+      }}"""
+    markup = f"""      <!-- layer 1: header as a phone notification: one tagline at a time drops in from the top -->
+      <div id="nt-wrap">
+{chr(10).join(cards)}
+      </div>"""
+    return css, markup
+
+
+def _notify_script(header: dict, duration: float) -> str:
+    hold, gap = header.get("hold", 4.5), header.get("gap", 0.8)
+    return f"""
+      // ---- header notifications: drop in, stay, slide back up; the next tagline follows ----
+      const NT_N = {len(header["texts"])};
+      const NT_HOLD = {hold}, NT_GAP = {gap}, NT_IN = 0.55, NT_OUT = 0.45;
+      for (let k = 0; k < NT_N; k++) tl.set("#nt-" + k, {{ yPercent: -160, opacity: 1 }}, 0);
+      for (let t = 0.5, k = 0; t < {duration:.2f} - 1; t += NT_IN + NT_HOLD + NT_OUT + NT_GAP, k++) {{
+        const card = "#nt-" + (k % NT_N);
+        tl.fromTo(card, {{ yPercent: -160 }}, {{ yPercent: 0, duration: NT_IN, ease: "back.out(1.3)", immediateRender: false }}, t);
+        tl.fromTo(card, {{ yPercent: 0 }}, {{ yPercent: -160, duration: NT_OUT, ease: "power2.in", immediateRender: false }},
+          t + NT_IN + NT_HOLD);
+      }}"""
+
+
 def _panels_script(header: dict) -> str:
     n = len(header["panels"])
     beats = [t for t in (header.get("beats") or []) if t >= 1.6]
@@ -603,8 +705,9 @@ def build_html(m: dict, gsap_src: str) -> str:
     style = (logo or {}).get("style")
     ticker = bool(logo) and style == "ticker"
     footer = bool(logo) and style == "footer"
+    notify = bool(header) and header.get("style") == "notify"
     if header:
-        css_hd, markup = _panels_markup(header, W)
+        css_hd, markup = (_notify_markup if notify else _panels_markup)(header, W)
         css_logo += css_hd
         clips.append(markup)
     if logo:
@@ -653,7 +756,7 @@ def build_html(m: dict, gsap_src: str) -> str:
         pop.slice(1).forEach((s, i) => tl.to(word, {{ scale: s, duration: FRAME, ease: "none" }}, start + i * FRAME));
         if (pop[pop.length - 1] !== 1) tl.to(word, {{ scale: 1, duration: FRAME, ease: "none" }}, start + (pop.length - 1) * FRAME);
         EXIT.forEach((s, i) => tl.to(word, {{ scale: s, duration: FRAME, ease: "none" }}, end - (EXIT.length - i) * FRAME));
-      }});{_box_caption_script(caps) if boxed else ""}{_panels_script(header) if header else ""}{_ticker_script(logo, D, W) if ticker else ("" if footer else _logo_script(logo, D))}
+      }});{_box_caption_script(caps) if boxed else ""}{(_notify_script(header, D) if notify else _panels_script(header)) if header else ""}{_ticker_script(logo, D, W) if ticker else ("" if footer else _logo_script(logo, D))}
       window.__timelines["main"] = tl;"""
 
     body = "\n".join(clips)

@@ -17,7 +17,7 @@ import numpy as np
 from . import compose
 from . import logo as logo_mod
 from .media import ffmpeg_exe
-from .translate import load_translation, phrases_from_words, translate_claude
+from .translate import load_translation, phrases_from_words, translate_claude, translate_free
 from .tts import SR, CachedTTS, ElevenLabsTTS, MockTTS, synthesize_fitted
 
 
@@ -27,12 +27,15 @@ class LocalizeOptions:
     logo_style: str = "ticker"           # ticker: turning green band with a running ticker | float: animated logo
                                          # | footer: the logo standing still at the bottom of the frame
     header_panels: list[str] | None = None  # images turned through on a 3D prism at the top
+    header_texts: list[str] | None = None   # taglines shown one at a time in a notification card at the top
     header_hold: float = 4.0             # seconds per header panel when the source had no banner rhythm
     brand: str | None = None             # ticker text, e.g. the brand name
     brand_url: str | None = None         # ticker text, e.g. the site
     lang: str = "English"
     lang_code: str = "en"
-    translation: str | None = None       # use this translation file instead of calling Claude
+    translation: str | None = None       # use this translation file instead of translating
+    source_lang: str = "ru"              # language of the original captions (for the free translator)
+    translator: str = "free"             # free: Google's free endpoint (Argos offline as fallback) | claude
     translate_only: bool = False         # stop after writing translation.<code>.json
     tts: str = "elevenlabs"              # elevenlabs | mock
     voice: str | None = None
@@ -129,7 +132,15 @@ def run(project: str, opt: LocalizeOptions, log=_log) -> dict:
         parts = "mark + wordmark animated separately" if prepared["mark"] else "single piece"
         log(f"logo ({opt.logo_style}): {src.name} in zone y={zone[1]}..{zone[3]}, {parts}, {len(beats)} pop beats")
 
-    if opt.header_panels:
+    if opt.header_texts:
+        ov = layers.get("overlay")
+        logo = layers.get("logo") or {}
+        layers["header"] = {"style": "notify", "texts": opt.header_texts,
+                            "zone_px": ov["zone_px"] if ov else [0, int(H * 0.03), W, int(H * 0.2)],
+                            "icon": (logo.get("mark") or {}).get("src") or logo.get("src"),
+                            "app": opt.brand or "PlantOgram", "hold": opt.header_hold}
+        log(f"header: notification with {len(opt.header_texts)} taglines")
+    elif opt.header_panels:
         layers["header"] = _header(proj, opt, layers, W, H, D)
         hd = layers["header"]
         log(f"header: {len(hd['panels'])} panels, {len(hd['beats'])} turns, zone y={hd['zone_px'][1]}..{hd['zone_px'][3]}")
@@ -212,15 +223,92 @@ def _translate(proj: Path, phrases: list[dict], opt: "LocalizeOptions", log) -> 
     elif tr_path.exists():
         tr = load_translation(tr_path)
         log(f"translation: reusing {tr_path.name} (delete it to re-translate)")
-    else:
+    elif opt.translator == "claude":
         log(f"translation: {len(phrases)} phrases → {opt.lang} via Claude…")
         tr = translate_claude(phrases, opt.lang)
+    else:
+        out = translate_free([p["src"] for p in phrases], opt.source_lang, opt.lang_code, log)
+        tr = {p["id"]: t for p, t in zip(phrases, out)}
     return tr
 
 
 def _norm(text: str) -> str:
     import re
     return " ".join(re.findall(r"[^\W_]+", text.lower()))
+
+
+def _similar(a: str, b: str) -> bool:
+    """The same caption read twice with an OCR slip ("в" read as "3", say)."""
+    from difflib import SequenceMatcher
+    return SequenceMatcher(None, a, b).ratio() > 0.8
+
+
+def _translate_box_sentences(boxes: list[dict], notes: list[dict], cuts: list[float],
+                             opt: "LocalizeOptions", log) -> dict[str, str]:
+    """Boxes hold pieces of sentences. Rebuild the sentences (a box that grows word by
+    word is one piece; a repeat is a fragment of the piece before), translate whole
+    sentences, then spread each translation back over its pieces by word share."""
+    import re
+
+    groups: list[dict] = []
+    for b in boxes:
+        n = _norm(b["text"])
+        g = groups[-1] if groups else None
+        close = g is not None and b["start"] - g["end"] < 0.45
+        if close and not b.get("card") and not g["card"]:
+            last = g["pieces"][-1]
+            ln = _norm(last["src"])
+            if n.startswith(ln) or ln.startswith(n):
+                if len(n) > len(ln):
+                    last["src"] = b["text"]
+                last["boxes"].append(b)
+                g["end"] = max(g["end"], b["end"])
+                continue
+            hit = next((pc for pc in g["pieces"][-2:]
+                        if n and (n in _norm(pc["src"]) or _similar(n, _norm(pc["src"])))), None)
+            if hit is not None:
+                hit["boxes"].append(b)
+                g["end"] = max(g["end"], b["end"])
+                continue
+        words = sum(len(pc["src"].split()) for pc in g["pieces"]) if g else 0
+        joins = (close and not b.get("card") and not g["card"] and words + len(b["text"].split()) <= 16
+                 and not any(g["end"] <= c <= b["start"] + 1e-3 for c in cuts)
+                 and not re.search(r"[.!?…]$", g["pieces"][-1]["src"].strip()))
+        if joins:
+            g["pieces"].append({"src": b["text"], "boxes": [b]})
+            g["end"] = b["end"]
+        else:
+            groups.append({"pieces": [{"src": b["text"], "boxes": [b]}], "card": bool(b.get("card")),
+                           "end": b["end"]})
+    # one line per piece: the translator keeps line breaks, so each piece gets its own words
+    texts = ["\n".join(pc["src"] for pc in g["pieces"]) for g in groups] + [n["text"] for n in notes]
+    out = translate_free(texts, opt.source_lang, opt.lang_code, log)
+    tr: dict[str, str] = {}
+    for g, en in zip(groups, out):
+        if g["card"]:
+            en = re.sub(r"\bNo\.?\s*(\d)", r"#\1", en)        # "Myth No. 1" -> "Myth #1"
+        lines = [ln.strip() for ln in en.split("\n")]
+        if len(lines) == len(g["pieces"]) and all(lines):
+            per_piece = [ln.split() for ln in lines]
+        else:   # lines merged: spread the words by the pieces' share of the source words
+            words, sizes = en.split(), [max(1, len(pc["src"].split())) for pc in g["pieces"]]
+            per_piece, acc, cut = [], 0, 0
+            for k, size in enumerate(sizes):
+                acc += size
+                end = len(words) if k == len(sizes) - 1 else max(cut + 1, round(len(words) * acc / sum(sizes)))
+                per_piece.append(words[cut:end] or words[-1:])
+                cut = end
+        for pc, piece_en in zip(g["pieces"], per_piece):
+            size = max(1, len(pc["src"].split()))
+            for b in pc["boxes"]:
+                # a box that is still building up shows the same share of the translated words;
+                # the full box (or a repeat of part of it) shows the whole piece
+                growing = _norm(pc["src"]).startswith(_norm(b["text"])) and len(b["text"].split()) < size
+                keep = max(1, round(len(piece_en) * len(b["text"].split()) / size)) if growing else len(piece_en)
+                tr[b["id"]] = " ".join(piece_en[:keep])
+    for n, en in zip(notes, out[len(groups):]):
+        tr[n["id"]] = en
+    return tr
 
 
 def _localize_boxes(proj: Path, m: dict, opt: "LocalizeOptions", log) -> dict:
@@ -240,7 +328,12 @@ def _localize_boxes(proj: Path, m: dict, opt: "LocalizeOptions", log) -> dict:
     for n in notes:
         phrases.append({"id": n["id"], "start": n["start"], "end": n["end"], "src": n["text"], "slot_end": n["end"],
                         "note": True})
-    tr = _translate(proj, phrases, opt, log)
+    tr_path = proj / f"translation.{opt.lang_code}.json"
+    if opt.translation or tr_path.exists() or opt.translator == "claude":
+        tr = _translate(proj, phrases, opt, log)
+    else:
+        cuts = [s["start"] for s in m.get("shots", [])[1:]]
+        tr = _translate_box_sentences(boxes, notes, cuts, opt, log)
     for p, b in zip(phrases, boxes + notes):
         p["text"] = b["text_out"] = tr.get(b["id"], "")
     tr_path = proj / f"translation.{opt.lang_code}.json"
