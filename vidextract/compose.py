@@ -644,6 +644,14 @@ def _box_caption_clips(caps: dict, fps: float, duration: float) -> list[str]:
             seen = max(q["start"], q["track"][0][0])
             ends[p["id"]] = min(ends.get(p["id"], p["end"]), seen)
             starts[q["id"]] = max(starts.get(q["id"], q["start"]), round(seen - 2 / fps, 3))
+        if not nxt:
+            # the box is often lost a few frames early over a background of its colour;
+            # when the next one comes to the same place soon after, hold the cover till then
+            soon = [q for q in shown if p["end"] <= q["start"] <= p["end"] + 0.8
+                    and abs(q["track"][0][2] - cy) < (h + q["track"][0][4]) / 2]
+            if soon:
+                q = min(soon, key=lambda q: q["start"])
+                ends[p["id"]] = max(q["start"], q["track"][0][0])
     for p in caps["phrases"]:
         if "text_out" in p and not p["text_out"].strip():
             continue   # translated to nothing (an icon OCR mistook for words): leave the original alone
