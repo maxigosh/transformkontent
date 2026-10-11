@@ -85,6 +85,7 @@ class BoxCaptionTracker:
         self.segments: list[Segment] = []
         self.active: list[Segment] = []
         self.k_close = cv2.getStructuringElement(cv2.MORPH_RECT, (max(3, W // 140) | 1,) * 2)
+        self.k_open = cv2.getStructuringElement(cv2.MORPH_RECT, (max(3, W // 216) | 1,) * 2)
 
     def _mask(self, hsv: np.ndarray) -> np.ndarray:
         h, s, v = hsv[..., 0], hsv[..., 1], hsv[..., 2]
@@ -143,10 +144,21 @@ class BoxCaptionTracker:
                 out.append(Box(i, cx, cy + self.y0, cw, ch, sig, card))
         return out
 
+    def _tight(self, hsv: np.ndarray) -> np.ndarray:
+        """Only the box's own bright red: over a background of nearly its colour (skin,
+        an orange organ, flames) the usual range takes the background in too, the box
+        melts into one big blob and is lost. Thin bits of background are opened away."""
+        h, s, v = hsv[..., 0], hsv[..., 1], hsv[..., 2]
+        m = (((h <= 7) | (h >= 174)) & (s > 140) & (v > 200)).astype(np.uint8)
+        return cv2.morphologyEx(m, cv2.MORPH_OPEN, self.k_open)
+
     def detect(self, i: int, frame: np.ndarray) -> list[Box]:
         band = frame[self.y0:self.y1]
         hsv = cv2.cvtColor(band, cv2.COLOR_BGR2HSV)
         out = self._boxes(i, hsv, self._mask(hsv), relaxed=False)
+        for b in self._boxes(i, hsv, self._tight(hsv), relaxed=False):
+            if not b.card and not any(_overlap(b, o) > 0.3 for o in out):
+                out.append(b)
         for b in self._boxes(i, hsv, self._relaxed(hsv), relaxed=True):
             if not any(_overlap(b, o) > 0.3 for o in out):
                 out.append(b)
