@@ -110,10 +110,13 @@
       <div><label data-i="logo">Logo (PNG, SVG)</label><input type="file" id="logo" accept="image/*"></div>
       <div><label data-i="header">Header</label>
         <select id="header"><option value="none" data-i="hNone">None</option>
+          <option value="frame" data-i="hFrame">Brand art on top, video below, logo in a footer</option>
           <option value="notify" data-i="hNotify">Card with the logo, changing taglines</option>
           <option value="float" data-i="hFloat">Animated logo</option>
           <option value="ticker" data-i="hTicker">Ticker band</option></select></div>
     </div>
+    <div id="artPane" hidden><label data-i="art">Header art (the picture beside the taglines, e.g. 941×463)</label>
+      <input type="file" id="art" accept="image/*"></div>
     <div id="textsPane" hidden><label data-i="texts">Taglines, one per line (a “word” in quotes is highlighted)</label>
       <textarea id="texts" placeholder="WHAT IF “NORMAL” IS THE PROBLEM?"></textarea></div>
     <div id="brandPane" class="row" hidden>
@@ -166,7 +169,8 @@ const T = {
     asr: "Распознавание речи (для видео без субтитров)", asrWhisper: "Whisper в VoiceStudio (бесплатно, локально)", voiceH: "3. Голос", noVoice: "Только субтитры",
     designLabel: "Новый голос под персонажа (опишите его)", create: "Создать",
     ambience: "Оставить оригинальный звук между фразами (смех, музыка)", brandH: "4. Логотип, шапка и подвал", logo: "Логотип (PNG, SVG)",
-    header: "Шапка", hNone: "Нет", hNotify: "Карточка с логотипом, надписи меняются", hFloat: "Анимированный логотип", hTicker: "Бегущая строка",
+    header: "Шапка", hNone: "Нет", hFrame: "Картинка бренда сверху, видео ниже, логотип в подвале",
+    art: "Картинка для шапки (рядом с надписями, например 941×463)", hNotify: "Карточка с логотипом, надписи меняются", hFloat: "Анимированный логотип", hTicker: "Бегущая строка",
     texts: "Надписи, по одной в строке («слово» в кавычках выделяется)", brand: "Название бренда", site: "Сайт",
     footer: "Логотип внизу (неподвижный)", checkH: "5. Перед озвучкой", reviewOpt: "Сначала дать мне проверить и поправить перевод",
     start: "Трансформировать", jobs: "Видео", noJobs: "Пока ничего нет.", keysHint: "Ключи хранятся на этом сервере. Оставьте •••• — сохранённый ключ не изменится.",
@@ -226,9 +230,10 @@ document.querySelectorAll("#engine button").forEach((b) => b.onclick = () => {
 });
 $("#header").onchange = () => {
   const h = $("#header").value;
-  $("#textsPane").hidden = h !== "notify";
+  $("#textsPane").hidden = h !== "notify" && h !== "frame";
+  $("#artPane").hidden = h !== "frame";
   $("#brandPane").hidden = h !== "ticker";
-  $("#footer").disabled = h === "ticker" || h === "float";
+  $("#footer").disabled = h === "ticker" || h === "float" || h === "frame";
   if ($("#footer").disabled) $("#footer").checked = false;
 };
 
@@ -277,6 +282,7 @@ $("#start").onclick = async () => {
   fd.append("options", JSON.stringify(options));
   if (srcMode === "file") fd.append("video", file);
   if ($("#logo").files[0]) fd.append("logo", $("#logo").files[0]);
+  if ($("#header").value === "frame" && $("#art").files[0]) fd.append("art", $("#art").files[0]);
   $("#start").disabled = true;
   try { await api("/api/jobs", { method: "POST", body: fd }); $("#formErr").textContent = t("sent"); refresh(); }
   catch (e) { $("#formErr").textContent = e.message; }

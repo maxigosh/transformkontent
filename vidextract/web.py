@@ -165,7 +165,7 @@ def create_app(password: str = "") -> FastAPI:
 
     @app.post("/api/jobs")
     async def create(options: str = Form(...), video: UploadFile | None = File(None),
-                     logo: UploadFile | None = File(None)):
+                     logo: UploadFile | None = File(None), art: UploadFile | None = File(None)):
         opt = JobOptions(**{k: v for k, v in json.loads(options).items() if k in JobOptions.__dataclass_fields__})
         if not video and not opt.url.strip():
             raise HTTPException(400, "upload a video or paste a link")
@@ -176,10 +176,11 @@ def create_app(password: str = "") -> FastAPI:
             with open(job.dir / f"source{ext}", "wb") as f:
                 shutil.copyfileobj(video.file, f)
             job.source_name = video.filename or "video"
-        if logo:
-            ext = Path(logo.filename or "l.png").suffix.lower() or ".png"
-            with open(job.dir / f"logo{ext}", "wb") as f:
-                shutil.copyfileobj(logo.file, f)
+        for up, stem in ((logo, "logo"), (art, "art")):
+            if up:
+                ext = Path(up.filename or "x.png").suffix.lower() or ".png"
+                with open(job.dir / f"{stem}{ext}", "wb") as f:
+                    shutil.copyfileobj(up.file, f)
         job.save()
         _queue.put(job.id)
         return _view(job)

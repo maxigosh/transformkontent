@@ -35,7 +35,7 @@ class JobOptions:
     tts: str = "voicestudio"         # voicestudio | elevenlabs | none (subtitles only)
     voice: str = ""
     keep_ambience: bool = False
-    header: str = "none"             # none | notify | ticker | float
+    header: str = "none"             # none | frame (art + taglines, video window, footer) | notify | ticker | float
     header_texts: list[str] = field(default_factory=list)
     footer_logo: bool = False
     brand: str = ""
@@ -212,15 +212,20 @@ def run(job: Job) -> None:
                 style = "footer"
             else:
                 style = "none"
-            if style != "none" or o.header == "notify":
+            if o.header == "frame":
+                style = "none"          # the frame draws the logo in its own footer band
+            if style != "none" or o.header in ("notify", "frame"):
                 loc += ["--logo", logo, "--logo-style", style]
         if o.brand:
             loc += ["--brand", o.brand]
         if o.brand_url:
             loc += ["--brand-url", o.brand_url]
-        if o.header == "notify" and o.header_texts:
+        if o.header in ("notify", "frame") and o.header_texts:
             (d / "header.txt").write_text("\n".join(o.header_texts))
             loc += ["--header-texts", d / "header.txt"]
+        art = next((p for p in d.glob("art.*")), None)
+        if o.header == "frame" and art is not None:
+            loc += ["--frame-art", art]
         if edited.exists():
             loc += ["--translation", edited]
 

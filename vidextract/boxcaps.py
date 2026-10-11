@@ -346,9 +346,9 @@ def extract(tracker: BoxCaptionTracker, src: str, W: int, H: int, fps: float, la
             # and an edited translation file keeps matching its boxes
             "id": f"b{s.start}",
             # the cover comes a little early and leaves a little late: a box fading in or
-            # out keeps its lettering for a frame or two past what the detector sees
-            "start": round(max(0, s.start - 2) / fps, 3),
-            "end": round((s.end + 3) / fps, 3),
+            # out shows its lettering for a few frames before and after the detector sees it
+            "start": round(max(0, s.start - 5) / fps, 3),
+            "end": round((s.end + 4) / fps, 3),
             "text": text or f"#{s.index}",
             "confidence": round(s.confidence, 1),
             "card": s.card,
