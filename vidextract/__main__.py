@@ -82,8 +82,28 @@ def restyle_main(argv: list[str]) -> int:
     return 0
 
 
+def voices_main(argv: list[str]) -> int:
+    from .voices import DEFAULT_TEXT, audition
+
+    p = argparse.ArgumentParser(
+        prog="vidextract voices",
+        description="Make VoiceStudio voice profiles from descriptions and speak a sample with each, "
+                    "so the dub has one steady voice that suits the character.")
+    p.add_argument("--describe", action="append", required=True,
+                   help='voice description, e.g. "middle-aged man, low pitch, calm, american accent" (repeat it)')
+    p.add_argument("--name", default="voice", help="profile name (numbered when several descriptions)")
+    p.add_argument("--text", default=DEFAULT_TEXT, help="sample line to speak")
+    p.add_argument("--out", default="out/voices", help="folder for the sample WAVs")
+    a = p.parse_args(argv)
+    made = audition(a.describe, a.name, a.text, a.out)
+    print("\nuse one of: " + ", ".join(f"VOICE={m['name']}" for m in made))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
+    if argv and argv[0] == "voices":
+        return voices_main(argv[1:])
     if argv and argv[0] == "localize":
         return localize_main(argv[1:])
     if argv and argv[0] == "restyle":

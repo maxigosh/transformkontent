@@ -123,6 +123,10 @@ class VoiceStudioTTS:
     def speak(self, text: str, speed: float = 1.0) -> tuple[bytes, list[dict]]:
         body = {"model": self.model, "input": text, "voice": self.voice, "response_format": "wav",
                 "speed": round(min(1.6, max(0.6, speed)), 3), "language": self.language}
+        if self.voice == "default":
+            # with no profile the engine draws a new speaker every time; a fixed seed at least
+            # keeps it the same one (a designed profile, see `vidextract voices`, is better)
+            body["seed"] = 42
         headers = {"Content-Type": "application/json"}
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"

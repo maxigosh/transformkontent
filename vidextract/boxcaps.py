@@ -64,6 +64,13 @@ class Segment:
         return steady[len(steady) // 2]
 
 
+def _overlap(a: "Box", b: "Box") -> float:
+    """Intersection over the smaller box."""
+    ix = max(0, min(a.x + a.w, b.x + b.w) - max(a.x, b.x))
+    iy = max(0, min(a.y + a.h, b.y + b.h) - max(a.y, b.y))
+    return ix * iy / max(1, min(a.w * a.h, b.w * b.h))
+
+
 def _sig_iou(a: np.ndarray, b: np.ndarray) -> float:
     inter = np.logical_and(a, b).sum()
     union = np.logical_or(a, b).sum()
@@ -86,37 +93,63 @@ class BoxCaptionTracker:
             hue |= (h >= a) & (h <= b)
         return (hue & (s > 150) & (v > 150)).astype(np.uint8)
 
-    def _core(self, m: np.ndarray, x: int, y: int, w: int, h: int) -> tuple[int, int, int, int] | None:
-        """Tighten a component's bbox to its dense rectangle (drops red things touching it)."""
-        sub = m[y:y + h, x:x + w].astype(np.float32)
-        rows, cols = sub.mean(axis=1), sub.mean(axis=0)
-        r = np.nonzero(rows > max(0.45, rows.max() * 0.6))[0]
-        c = np.nonzero(cols > max(0.45, cols.max() * 0.6))[0]
-        if len(r) < 4 or len(c) < 4:
-            return None
-        ya, yb, xa, xb = r[0], r[-1] + 1, c[0], c[-1] + 1
-        if sub[ya:yb, xa:xb].mean() < 0.55:
-            return None
-        return x + xa, y + ya, xb - xa, yb - ya
+    def _cores(self, m: np.ndarray, x: int, y: int, w: int, h: int) -> list[tuple[int, int, int, int]]:
+        """Solid rectangles inside one colour component. The holes the lettering leaves
+        are filled first; then, since a caption box often touches other things of its
+        colour (a bottle of juice, a hand), the component is cut into bands of dense
+        rows and each band is tightened to its own rectangle."""
+        sub = m[y:y + h, x:x + w].copy()
+        # fill enclosed holes (the letters): flood the background in from the border
+        pad = cv2.copyMakeBorder(1 - sub, 1, 1, 1, 1, cv2.BORDER_CONSTANT, value=1)
+        flood = pad.copy()
+        cv2.floodFill(flood, np.zeros((h + 4, w + 4), np.uint8), (0, 0), 2)
+        sub = np.where(flood[1:-1, 1:-1] == 2, 0, 1).astype(np.float32)
+        rows = sub.mean(axis=1)
+        out = []
+        for ya, yb in _runs(rows > max(0.3, rows.max() * 0.6), gap=2):
+            band = sub[ya:yb]
+            cols = np.nonzero(band.mean(axis=0) > 0.6)[0]
+            if yb - ya < 4 or len(cols) < 4:
+                continue
+            xa, xb = cols[0], cols[-1] + 1
+            if band[:, xa:xb].mean() >= 0.75:
+                out.append((x + xa, y + ya, xb - xa, yb - ya))
+        return out
 
-    def detect(self, i: int, frame: np.ndarray) -> list[Box]:
-        band = frame[self.y0:self.y1]
-        hsv = cv2.cvtColor(band, cv2.COLOR_BGR2HSV)
-        m = cv2.morphologyEx(self._mask(hsv), cv2.MORPH_CLOSE, self.k_close)
+    def _relaxed(self, hsv: np.ndarray) -> np.ndarray:
+        """Boxes that are a little see-through read pink over white and orange over green."""
+        h, s, v = hsv[..., 0], hsv[..., 1], hsv[..., 2]
+        return (((h <= 22) | (h >= 165)) & (s > 90) & (v > 140)).astype(np.uint8)
+
+    def _boxes(self, i: int, hsv: np.ndarray, mask: np.ndarray, relaxed: bool) -> list[Box]:
+        m = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, self.k_close)
         n, _, st, _ = cv2.connectedComponentsWithStats(m, 8)
         out = []
         for k in range(1, n):
             x, y, w, h, a = (int(v) for v in st[k])
             if w < 0.07 * self.W or h < 0.022 * self.H or a < 0.5 * w * h:
                 continue
-            core = self._core(m, x, y, w, h)
-            if core is None:
-                continue
-            x, y, w, h = (int(v) for v in core)
-            white = (hsv[y:y + h, x:x + w, 2] > 185) & (hsv[y:y + h, x:x + w, 1] < 90)
-            sig = cv2.resize(white.astype(np.uint8) * 255, (96, 24), interpolation=cv2.INTER_AREA) > 96
-            card = bool(h > 0.25 * self.H)  # a title card, not a caption box
-            out.append(Box(i, x, y + self.y0, w, h, sig, card))
+            for cx, cy, cw, ch in self._cores(m, x, y, w, h):
+                cx, cy, cw, ch = int(cx), int(cy), int(cw), int(ch)
+                if cw < 0.07 * self.W or ch < 0.022 * self.H:
+                    continue
+                white = (hsv[cy:cy + ch, cx:cx + cw, 2] > 185) & (hsv[cy:cy + ch, cx:cx + cw, 1] < 90)
+                card = bool(ch > 0.25 * self.H)  # a title card, not a caption box
+                if relaxed and (card or ch > 0.2 * self.H or cw < 1.3 * ch or not 0.04 <= white.mean() <= 0.45):
+                    # the loose colour range also catches skin and warm objects: keep only a
+                    # caption-shaped box that has white lettering in it
+                    continue
+                sig = cv2.resize(white.astype(np.uint8) * 255, (96, 24), interpolation=cv2.INTER_AREA) > 96
+                out.append(Box(i, cx, cy + self.y0, cw, ch, sig, card))
+        return out
+
+    def detect(self, i: int, frame: np.ndarray) -> list[Box]:
+        band = frame[self.y0:self.y1]
+        hsv = cv2.cvtColor(band, cv2.COLOR_BGR2HSV)
+        out = self._boxes(i, hsv, self._mask(hsv), relaxed=False)
+        for b in self._boxes(i, hsv, self._relaxed(hsv), relaxed=True):
+            if not any(_overlap(b, o) > 0.3 for o in out):
+                out.append(b)
         return out
 
     def push(self, i: int, frame: np.ndarray) -> None:
@@ -309,9 +342,13 @@ def extract(tracker: BoxCaptionTracker, src: str, W: int, H: int, fps: float, la
             continue
         upper = sum(c.isupper() for c in text) > 0.6 * max(1, sum(c.isalpha() for c in text))
         phrases.append({
-            "id": f"c{s.index}",
-            "start": round(s.start / fps, 3),
-            "end": round(s.end / fps, 3),
+            # the id is the first frame, so it stays the same when the clip is analysed again
+            # and an edited translation file keeps matching its boxes
+            "id": f"b{s.start}",
+            # the cover comes a little early and leaves a little late: a box fading in or
+            # out keeps its lettering for a frame or two past what the detector sees
+            "start": round(max(0, s.start - 2) / fps, 3),
+            "end": round((s.end + 3) / fps, 3),
             "text": text or f"#{s.index}",
             "confidence": round(s.confidence, 1),
             "card": s.card,

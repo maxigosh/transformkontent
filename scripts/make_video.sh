@@ -13,6 +13,9 @@
 #                                       on the original banner rhythm; float: the logo itself rolls in and floats
 #   BRAND=PlantOgram BRAND_URL=plantogram.com.au   ticker text (defaults match the default logo)
 #   VOICE=YLbQE9U7P1K6rBNJWNSv          ElevenLabs voice_id (with TTS=voicestudio: a voice profile id or name)
+#   VOICE_DESCRIPTION="..."             TTS=voicestudio: make (or reuse) a voice profile from a description,
+#                                       e.g. "middle-aged man, low pitch, calm, american accent";
+#                                       try several first with: python -m vidextract voices --describe ...
 #   TRANSLATION=path.json               ready translation; without it the text is translated for free
 #                                       (Google's free endpoint, Argos Translate offline as a fallback)
 #   TRANSLATOR=free                     or "claude" (needs ANTHROPIC_API_KEY)
@@ -140,6 +143,13 @@ if [[ ${FRESH:-0} == 1 || ! -f $WORK/elements.json ]]; then
   python -m vidextract "$VIDEO" -o "$WORK" "${ex[@]}"
 else
   say "1/3 reusing extracted layers in $WORK (FRESH=1 to redo)"
+fi
+
+if [[ $TTS == voicestudio && -n ${VOICE_DESCRIPTION:-} && $VOICE == default ]]; then
+  # one steady voice for the whole dub instead of the engine drawing a new one per phrase
+  VOICE=${VOICE_NAME:-character}
+  say "voice profile '$VOICE' from: $VOICE_DESCRIPTION"
+  python -m vidextract voices --describe "$VOICE_DESCRIPTION" --name "$VOICE" --out "$ROOT/out/voices"
 fi
 
 brand=()

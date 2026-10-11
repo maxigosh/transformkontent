@@ -237,6 +237,29 @@ def _norm(text: str) -> str:
     return " ".join(re.findall(r"[^\W_]+", text.lower()))
 
 
+def _match_by_time(tr: dict[str, str], phrases: list[dict], path: Path, log) -> None:
+    """A translation made for an earlier analysis of the clip may name boxes differently;
+    a box missing from it takes the entry that overlaps it most in time."""
+    if not path.exists():
+        return
+    rows = [r for r in json.loads(path.read_text()) if "start" in r and "end" in r]
+
+    def is_note(r: dict) -> bool:   # small print at the bottom, never a caption box
+        return bool(r.get("note")) or str(r.get("id", "")).startswith("n")
+
+    found = 0
+    for p in phrases:
+        same_kind = [r for r in rows if is_note(r) == is_note(p)]
+        if p["id"] in tr or not same_kind:
+            continue
+        best = max(same_kind, key=lambda r: min(r["end"], p["end"]) - max(r["start"], p["start"]))
+        if min(best["end"], p["end"]) - max(best["start"], p["start"]) > 0.5 * (p["end"] - p["start"]):
+            tr[p["id"]] = (best.get("text") or best.get("en") or "").strip()
+            found += 1
+    if found:
+        log(f"translation: {found} boxes matched to the file by time")
+
+
 def _similar(a: str, b: str) -> bool:
     """The same caption read twice with an OCR slip ("в" read as "3", say)."""
     from difflib import SequenceMatcher
@@ -331,6 +354,15 @@ def _localize_boxes(proj: Path, m: dict, opt: "LocalizeOptions", log) -> dict:
     tr_path = proj / f"translation.{opt.lang_code}.json"
     if opt.translation or tr_path.exists() or opt.translator == "claude":
         tr = _translate(proj, phrases, opt, log)
+        _match_by_time(tr, phrases, Path(opt.translation) if opt.translation else tr_path, log)
+        missing = [p for p in phrases if p["id"] not in tr]
+        if missing and opt.translator != "claude":
+            # boxes the file knows nothing about (found by a newer analysis): translate just those
+            out = translate_free([p["src"] for p in missing], opt.source_lang, opt.lang_code, log)
+            for p, t in zip(missing, out):
+                tr[p["id"]] = t
+            log(f"translation: {len(missing)} boxes not in the file translated for free: "
+                + "; ".join(t for t in out[:6]))
     else:
         cuts = [s["start"] for s in m.get("shots", [])[1:]]
         tr = _translate_box_sentences(boxes, notes, cuts, opt, log)
