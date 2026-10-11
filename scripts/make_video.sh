@@ -28,7 +28,9 @@
 #                                       use with LOGO_STYLE=footer to put the logo at the bottom
 #   REDUB=0                             a project that is already dubbed only gets its brand block
 #                                       rebuilt (no ElevenLabs calls); REDUB=1 translates and dubs again
-set -euo pipefail
+set -Eeuo pipefail
+# never stop silently: name the command and line that failed
+trap 'printf "\n\033[31merror:\033[0m line %s: \"%s\" exited with %s\n" "$LINENO" "$BASH_COMMAND" "$?" >&2' ERR
 
 VIDEO=${1:?"usage: $0 <input video> [output.mp4]"}
 OUT=${2:-out/$(basename "${VIDEO%.*}")_en.mp4}
@@ -114,7 +116,11 @@ mkdir -p .bin && ln -sf "$FFMPEG" .bin/ffmpeg && ln -sf "$FFPROBE" .bin/ffprobe
 export PATH="$ROOT/.bin:$ROOT/node_modules/.bin:$PATH"
 export HYPERFRAMES_FFMPEG_PATH="$ROOT/.bin/ffmpeg" HYPERFRAMES_FFPROBE_PATH="$ROOT/.bin/ffprobe"
 export HYPERFRAMES_NO_TELEMETRY=1 HYPERFRAMES_NO_UPDATE_CHECK=1
-if [[ -z ${HYPERFRAMES_BROWSER_PATH:-} ]]; then hyperframes browser ensure; fi
+# without a terminal (nohup, cron) this can exit non-zero even when the browser is there;
+# a browser that is really missing makes the render fail later with its own message
+if [[ -z ${HYPERFRAMES_BROWSER_PATH:-} ]]; then
+  hyperframes browser ensure </dev/null || say "browser check exited with $? — continuing"
+fi
 
 if [[ -n $URL && ( ${FRESH:-0} == 1 || ! -f $VIDEO ) ]]; then
   say "downloading $URL"
