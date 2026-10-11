@@ -45,9 +45,10 @@ def localize_main(argv: list[str]) -> int:
                         "claude: Claude API (needs ANTHROPIC_API_KEY)")
     p.add_argument("--source-lang", default="ru", help="language code of the original captions (default ru)")
     p.add_argument("--translate-only", action="store_true", help="write translation.<code>.json and stop")
-    p.add_argument("--tts", choices=["elevenlabs", "voicestudio", "mock"], default="elevenlabs",
+    p.add_argument("--tts", choices=["elevenlabs", "voicestudio", "kokoro", "mock"], default="elevenlabs",
                    help="voice engine: elevenlabs (needs ELEVENLABS_API_KEY), voicestudio (a local VoiceStudio server, "
-                        "VOICESTUDIO_URL, default http://127.0.0.1:3900), or mock (offline test tone)")
+                        "VOICESTUDIO_URL, default http://127.0.0.1:3900), kokoro (free, local, CPU; voices like am_michael, "
+                        "bm_george; KOKORO_PYTHON), or mock (offline test tone)")
     p.add_argument("--voice", help="ElevenLabs voice_id, or a VoiceStudio voice profile id or name")
     p.add_argument("--tts-model", help="ElevenLabs model_id (default eleven_multilingual_v2) or VoiceStudio engine "
                                        "(default omnivoice)")

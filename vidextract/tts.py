@@ -164,6 +164,41 @@ def estimate_words(text: str, pcm: np.ndarray) -> list[dict]:
             for w, a, b in zip(words, edges[:-1], edges[1:])]
 
 
+class KokoroTTS:
+    """Kokoro (82M, Apache-2.0): a free voice that runs on the CPU. The model runs in a
+    worker process under KOKORO_PYTHON (a Python with `pip install kokoro soundfile`,
+    the current one by default), loaded once for the whole dub."""
+
+    def __init__(self, voice: str | None = None):
+        import shutil
+        import sys
+        import tempfile
+        self.voice = voice or "am_michael"
+        self.model = "kokoro-82m"
+        self._tmp = tempfile.mkdtemp(prefix="kokoro-")
+        py = os.environ.get("KOKORO_PYTHON") or sys.executable
+        worker = os.path.join(os.path.dirname(__file__), "kokoro_worker.py")
+        self._proc = subprocess.Popen([py, "-I", worker], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                      stderr=subprocess.DEVNULL, text=True, cwd=self._tmp)
+        self._n = 0
+        self._cleanup = lambda: shutil.rmtree(self._tmp, ignore_errors=True)
+
+    def speak(self, text: str, speed: float = 1.0) -> tuple[bytes, list[dict]]:
+        self._n += 1
+        out = os.path.join(self._tmp, f"{self._n}.wav")
+        self._proc.stdin.write(json.dumps({"text": text, "voice": self.voice, "speed": round(speed, 3), "out": out}) + "\n")
+        self._proc.stdin.flush()
+        line = self._proc.stdout.readline()
+        if not line:
+            raise RuntimeError("Kokoro worker stopped (is kokoro installed for KOKORO_PYTHON?)")
+        res = json.loads(line)
+        if "error" in res:
+            raise RuntimeError(f"Kokoro: {res['error']}")
+        with open(out, "rb") as f:
+            audio = f.read()
+        return audio, estimate_words(text, decode_audio(audio))
+
+
 class CachedTTS:
     """Keeps every synthesized take on disk, so re-running a project re-uses the
     same audio instead of paying for (and slightly changing) it again."""

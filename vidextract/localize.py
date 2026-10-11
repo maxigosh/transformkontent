@@ -18,7 +18,7 @@ from . import compose
 from . import logo as logo_mod
 from .media import ffmpeg_exe
 from .translate import load_translation, phrases_from_words, translate_claude, translate_free
-from .tts import SR, CachedTTS, ElevenLabsTTS, MockTTS, VoiceStudioTTS, synthesize_fitted
+from .tts import SR, CachedTTS, ElevenLabsTTS, KokoroTTS, MockTTS, VoiceStudioTTS, synthesize_fitted
 
 
 @dataclass
@@ -424,6 +424,9 @@ def _dub(proj: Path, phrases: list[dict], D: float, opt: LocalizeOptions, log,
     """Voice each phrase in its time slot; returns word timings and the voice-over path."""
     if opt.tts == "mock":
         tts = MockTTS()
+    elif opt.tts == "kokoro":
+        tts = KokoroTTS(voice=opt.voice)
+        tts = CachedTTS(tts, proj / "assets" / "tts_cache", f"kokoro|{tts.voice}")
     elif opt.tts == "voicestudio":
         tts = VoiceStudioTTS(voice=opt.voice, model=opt.tts_model, language=opt.lang_code)
         tts = CachedTTS(tts, proj / "assets" / "tts_cache", f"voicestudio|{tts.voice}|{tts.model}")
