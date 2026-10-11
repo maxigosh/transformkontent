@@ -148,7 +148,7 @@ if [[ $RESTYLE == 1 ]]; then
   say "2/3 already dubbed: rebuilding only the brand block ($LOGO_STYLE); REDUB=1 to translate and dub again"
   python -m vidextract restyle "$WORK" --logo-style "$LOGO_STYLE" "${brand[@]}"
 else
-  say "2/3 logo, voice removal, translation, ElevenLabs dub, English captions"
+  say "2/3 logo, voice removal, translation, dub ($TTS), English captions"
   args=(localize "$WORK" --logo "$LOGO" --logo-style "$LOGO_STYLE" "${brand[@]}" --voice "$VOICE" --tts "$TTS"
         --translator "$TRANSLATOR")
   [[ -n $HEADER_TEXTS ]] && args+=(--header-texts "$HEADER_TEXTS")
