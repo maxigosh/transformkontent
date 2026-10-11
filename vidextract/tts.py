@@ -108,6 +108,9 @@ class VoiceStudioTTS:
     OpenAI-compatible POST /v1/audio/speech. It returns audio only, so word timings
     are estimated: the voiced span is found by energy and shared out by word length."""
 
+    # on a CPU a second take costs as much as the first: fit by time-stretching instead
+    respeak = False
+
     def __init__(self, voice: str | None = None, model: str | None = None, url: str | None = None,
                  language: str = "en", api_key: str | None = None):
         self.url = (url or os.environ.get("VOICESTUDIO_URL") or "http://127.0.0.1:3900").rstrip("/")
@@ -199,7 +202,7 @@ def synthesize_fitted(tts, text: str, slot: float, max_tempo: float = 1.25) -> S
     audio, words = tts.speak(text)
     pcm = decode_audio(audio)
     need = (len(pcm) / SR) / max(slot, 0.2)
-    if need > 1.02:
+    if need > 1.02 and getattr(getattr(tts, "tts", tts), "respeak", True):
         speed = min(1.2, need * 1.03)
         audio, words = tts.speak(text, speed=speed)
         pcm = decode_audio(audio)
