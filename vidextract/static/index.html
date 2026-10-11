@@ -87,7 +87,8 @@
       <div><label data-i="captions">Captions in the video</label>
         <select id="captions"><option value="auto" data-i="capAuto">Detect</option>
           <option value="boxes" data-i="capBoxes">Phrases in colour boxes</option>
-          <option value="outline" data-i="capOutline">Words with an outline</option></select></div>
+          <option value="outline" data-i="capOutline">Words with an outline</option>
+          <option value="none" data-i="capNone">No captions — recognise the speech</option></select></div>
     </div>
 
     <h3 data-i="voiceH">3. Voice</h3>
@@ -143,7 +144,9 @@
   <label data-i="translator">Translator</label>
   <select id="sTr"><option value="free" data-i="trFree">Free (Google Translate, Argos offline)</option><option value="claude">Claude API</option></select>
   <label>Anthropic API key</label><input type="password" id="sAn">
-  <label data-i="dgKey">Deepgram API key (speech recognition for videos without captions — coming)</label><input type="password" id="sDg">
+  <label data-i="asr">Speech recognition (videos without captions)</label>
+  <select id="sAsr"><option value="deepgram">Deepgram</option><option value="whisper" data-i="asrWhisper">Whisper in VoiceStudio (free, local)</option></select>
+  <label data-i="dgKey">Deepgram API key</label><input type="password" id="sDg">
   <label data-i="workers">Render workers (Chrome processes, ~256 MB each)</label><input type="number" id="sW" min="1" max="16">
   <div class="row" style="margin-top:14px"><button class="btn" id="saveSettings" data-i="save">Save</button><button class="btn ghost" id="closeSettings" data-i="close">Close</button></div>
 </dialog>
@@ -159,7 +162,8 @@ const T = {
   ru: { tagline: "— локализация видео", settings: "Настройки", newjob: "Новое видео", source: "1. Видео", link: "Ссылка", file: "Файл",
     linkLabel: "Ссылка на видео (Facebook, Instagram, TikTok, YouTube…)", dropVideo: "Перетащите видео сюда или нажмите, чтобы выбрать",
     languages: "2. Языки", from: "С какого", to: "На какой", captions: "Субтитры в видео", capAuto: "Определить сами",
-    capBoxes: "Фразы в цветных плашках", capOutline: "Слова с обводкой", voiceH: "3. Голос", noVoice: "Только субтитры",
+    capBoxes: "Фразы в цветных плашках", capOutline: "Слова с обводкой", capNone: "Субтитров нет — распознать речь",
+    asr: "Распознавание речи (для видео без субтитров)", asrWhisper: "Whisper в VoiceStudio (бесплатно, локально)", voiceH: "3. Голос", noVoice: "Только субтитры",
     designLabel: "Новый голос под персонажа (опишите его)", create: "Создать",
     ambience: "Оставить оригинальный звук между фразами (смех, музыка)", brandH: "4. Логотип, шапка и подвал", logo: "Логотип (PNG, SVG)",
     header: "Шапка", hNone: "Нет", hNotify: "Карточка с логотипом, надписи меняются", hFloat: "Анимированный логотип", hTicker: "Бегущая строка",
@@ -167,7 +171,7 @@ const T = {
     footer: "Логотип внизу (неподвижный)", checkH: "5. Перед озвучкой", reviewOpt: "Сначала дать мне проверить и поправить перевод",
     start: "Трансформировать", jobs: "Видео", noJobs: "Пока ничего нет.", keysHint: "Ключи хранятся на этом сервере. Оставьте •••• — сохранённый ключ не изменится.",
     vsKey: "Ключ API VoiceStudio (если пусто — берётся из его контейнера)", translator: "Переводчик", trFree: "Бесплатный (Google Translate, Argos офлайн)",
-    dgKey: "Ключ Deepgram (распознавание речи для видео без субтитров — скоро)", workers: "Процессы рендера (Chrome, ~256 МБ каждый)",
+    dgKey: "Ключ API Deepgram", workers: "Процессы рендера (Chrome, ~256 МБ каждый)",
     save: "Сохранить", close: "Закрыть", login: "Пароль", listen: "▶", pick: "выбрать", picked: "выбран", download: "Скачать",
     downloadFull: "Полное качество", retry: "Повторить", del: "Удалить", log: "Лог", continue: "Перевод верный — озвучить",
     queued: "в очереди", running: "работает", review: "проверьте перевод", done: "готово", failed: "ошибка",
@@ -342,13 +346,14 @@ async function reviewTable(j) {
 $("#openSettings").onclick = () => {
   const s = cfg.settings; $("#sVsUrl").value = s.voicestudio_url || ""; $("#sVsKey").value = s.voicestudio_api_key || "";
   $("#sEl").value = s.elevenlabs_api_key || ""; $("#sAn").value = s.anthropic_api_key || ""; $("#sDg").value = s.deepgram_api_key || "";
-  $("#sTr").value = s.translator || "free"; $("#sW").value = s.render_workers || 2; $("#settingsDlg").showModal();
+  $("#sTr").value = s.translator || "free"; $("#sAsr").value = s.asr || "deepgram"; $("#sW").value = s.render_workers || 2; $("#settingsDlg").showModal();
 };
 $("#closeSettings").onclick = () => $("#settingsDlg").close();
 $("#saveSettings").onclick = async () => {
   cfg = await api("/api/settings", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({
     voicestudio_url: $("#sVsUrl").value.trim(), voicestudio_api_key: $("#sVsKey").value.trim(), elevenlabs_api_key: $("#sEl").value.trim(),
     anthropic_api_key: $("#sAn").value.trim(), deepgram_api_key: $("#sDg").value.trim(), translator: $("#sTr").value,
+    asr: $("#sAsr").value,
     render_workers: Number($("#sW").value) || 2 }) });
   $("#settingsDlg").close(); loadVoices();
 };

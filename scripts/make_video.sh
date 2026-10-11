@@ -25,7 +25,10 @@
 #   RENDER_WORKERS=2                    parallel Chrome processes for the render (more = faster, more RAM)
 #   KEEP_AMBIENCE=1                     0 = drop the original track completely
 #   CAPTIONS=outline                    outline: one white outlined word at a time (default);
-#                                       boxes: phrases in solid colour boxes (white on red) + title cards
+#                                       boxes: phrases in solid colour boxes (white on red) + title cards;
+#                                       none: no captions in the video — the speech is recognised (ASR)
+#   ASR=deepgram                        with CAPTIONS=none: deepgram (DEEPGRAM_API_KEY) or whisper (VoiceStudio)
+#   SOURCE_LANG=ru                      language spoken in the video
 #   HEADER_TEXTS=file.txt               taglines, one per line, shown in turn in a phone-notification card
 #                                       at the top (a word in “quotes” is highlighted)
 #   HEADER_PANELS="a.png b.png ..."     images turned through on a 3D box at the top (4 = a box);
@@ -140,7 +143,12 @@ if [[ ${FRESH:-0} == 1 || ! -f $WORK/elements.json ]]; then
   rm -rf "$WORK"
   ex=()
   [[ $CAPTIONS == boxes ]] && ex+=(--caption-boxes)
+  [[ $CAPTIONS == none ]] && ex+=(--no-captions)
   python -m vidextract "$VIDEO" -o "$WORK" "${ex[@]}"
+  if [[ $CAPTIONS == none ]]; then
+    say "recognising the speech (${ASR:-deepgram})"
+    python -m vidextract transcribe "$WORK" --engine "${ASR:-deepgram}" --lang "${SOURCE_LANG:-ru}"
+  fi
 else
   say "1/3 reusing extracted layers in $WORK (FRESH=1 to redo)"
 fi

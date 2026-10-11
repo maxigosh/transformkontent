@@ -31,7 +31,7 @@ class JobOptions:
     url: str = ""                    # a link (Facebook, Instagram, TikTok, YouTube, ...) or empty for an upload
     source_lang: str = "ru"
     target_lang: str = "en"
-    captions: str = "auto"           # auto | boxes | outline
+    captions: str = "auto"           # auto | boxes | outline | none (no captions: recognise the speech)
     tts: str = "voicestudio"         # voicestudio | elevenlabs | none (subtitles only)
     voice: str = ""
     keep_ambience: bool = False
@@ -86,7 +86,7 @@ def jobs_dir() -> Path:
 
 # ---- settings (API keys stay on the server, readable only by its owner) ------------------------
 SETTING_KEYS = ("elevenlabs_api_key", "voicestudio_url", "voicestudio_api_key", "anthropic_api_key",
-                "deepgram_api_key", "render_workers", "translator")
+                "deepgram_api_key", "render_workers", "translator", "asr")
 
 
 def load_settings() -> dict:
@@ -95,6 +95,7 @@ def load_settings() -> dict:
     s.setdefault("voicestudio_url", "http://127.0.0.1:3900")
     s.setdefault("render_workers", 2)
     s.setdefault("translator", "free")
+    s.setdefault("asr", "deepgram")
     if not s.get("voicestudio_api_key"):
         s["voicestudio_api_key"] = _voicestudio_key_from_docker()
     return s
@@ -132,7 +133,8 @@ def step_env(settings: dict) -> dict:
     if ffprobe.exists():
         env["HYPERFRAMES_FFPROBE_PATH"] = str(ffprobe)
     for key, var in (("elevenlabs_api_key", "ELEVENLABS_API_KEY"), ("voicestudio_url", "VOICESTUDIO_URL"),
-                     ("voicestudio_api_key", "VOICESTUDIO_API_KEY"), ("anthropic_api_key", "ANTHROPIC_API_KEY")):
+                     ("voicestudio_api_key", "VOICESTUDIO_API_KEY"), ("anthropic_api_key", "ANTHROPIC_API_KEY"),
+                     ("deepgram_api_key", "DEEPGRAM_API_KEY")):
         if settings.get(key):
             env[var] = str(settings[key])
     return env
@@ -184,7 +186,18 @@ def run(job: Job) -> None:
             cmd = [py, "-m", "vidextract", src, "-o", work, "--ocr-lang", tess]
             if kind == "boxes":
                 cmd.append("--caption-boxes")
+            elif kind == "none":
+                cmd.append("--no-captions")
             _run(job, cmd, env, cwd=ROOT)
+            caps = json.loads((work / "elements.json").read_text())["layers"].get("captions")
+            if not caps or not (caps.get("words") or caps.get("phrases")):
+                # no captions in the frames: take the words from the speech instead
+                asr = s.get("asr", "deepgram")
+                if asr == "deepgram" and not s.get("deepgram_api_key"):
+                    asr = "whisper"
+                _step(job, f"recognising the speech ({asr})")
+                _run(job, [py, "-m", "vidextract", "transcribe", work, "--engine", asr, "--lang", o.source_lang],
+                     env, cwd=ROOT)
 
         edited = d / "translation.edited.json"
         loc = [py, "-m", "vidextract", "localize", work, "--lang", lang_name, "--lang-code", o.target_lang,

@@ -100,6 +100,21 @@ def voices_main(argv: list[str]) -> int:
     return 0
 
 
+def transcribe_main(argv: list[str]) -> int:
+    from .asr import transcribe
+
+    p = argparse.ArgumentParser(prog="vidextract transcribe",
+                                description="Recognise the speech of a video without captions; the words become "
+                                            "its caption track for localize.")
+    p.add_argument("project")
+    p.add_argument("--engine", choices=["deepgram", "whisper"], default="deepgram",
+                   help="deepgram (DEEPGRAM_API_KEY) or whisper in a local VoiceStudio (VOICESTUDIO_URL)")
+    p.add_argument("--lang", default="ru", help="language spoken in the video (code, e.g. ru, en, es)")
+    a = p.parse_args(argv)
+    transcribe(a.project, a.engine, a.lang)
+    return 0
+
+
 def serve_main(argv: list[str]) -> int:
     from .web import serve
 
@@ -117,6 +132,8 @@ def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     if argv and argv[0] == "serve":
         return serve_main(argv[1:])
+    if argv and argv[0] == "transcribe":
+        return transcribe_main(argv[1:])
     if argv and argv[0] == "voices":
         return voices_main(argv[1:])
     if argv and argv[0] == "localize":
