@@ -631,14 +631,19 @@ def _box_caption_clips(caps: dict, fps: float, duration: float) -> list[str]:
     the (translated) text. Boxes that moved in the source follow their track."""
     out = ["      <!-- layer 2: phrase captions in boxes (each covers the original box; editable text) -->"]
     # a cover is held a few frames past its box (fades); when the next box takes the same
-    # place it ends there instead, so the two never show together
+    # place, the hand-over happens when that box is really seen (its first tracked frame,
+    # not its padded start): the old cover holds until then, the new one starts two frames
+    # earlier on top of it, so neither the old nor the new original peeks out
     shown = [p for p in caps["phrases"] if not ("text_out" in p and not p["text_out"].strip())]
-    ends = {}
+    ends, starts = {}, {}
     for p in shown:
         _, cx, cy, w, h = p["track"][-1]
         nxt = [q for q in shown if p["start"] < q["start"] < p["end"]
                and abs(q["track"][0][2] - cy) < (h + q["track"][0][4]) / 2]
-        ends[p["id"]] = min([p["end"]] + [q["start"] for q in nxt])
+        for q in nxt:
+            seen = max(q["start"], q["track"][0][0])
+            ends[p["id"]] = min(ends.get(p["id"], p["end"]), seen)
+            starts[q["id"]] = max(starts.get(q["id"], q["start"]), round(seen - 2 / fps, 3))
     for p in caps["phrases"]:
         if "text_out" in p and not p["text_out"].strip():
             continue   # translated to nothing (an icon OCR mistook for words): leave the original alone
@@ -651,9 +656,10 @@ def _box_caption_clips(caps: dict, fps: float, duration: float) -> list[str]:
             # title cards: the text fills the card like the original's big lettering
             n_lines = max(1, len(text.split()))
             fs = f" font-size: {min(h / n_lines * 0.62, w / max(4, max(len(t) for t in text.split())) * 1.45):.0f}px;"
-        dur = round(max(1 / fps, min(ends.get(p["id"], p["end"]), duration) - p["start"]), 3)
+        start = starts.get(p["id"], p["start"])
+        dur = round(max(1 / fps, min(ends.get(p["id"], p["end"]), duration) - start), 3)
         out.append(
-            f'      <div id="{p["id"]}" class="clip box-cap{" card" if p.get("card") else ""}" data-start="{p["start"]}" '
+            f'      <div id="{p["id"]}" class="clip box-cap{" card" if p.get("card") else ""}" data-start="{start}" '
             f'data-duration="{dur}" data-track-index="2" style="left: {cx}px; top: {cy}px; min-width: {w}px; '
             f'min-height: {h}px;{fs}"><span>{html.escape(text)}</span></div>')
     return out
