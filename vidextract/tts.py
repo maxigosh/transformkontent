@@ -188,9 +188,12 @@ class KokoroTTS:
         out = os.path.join(self._tmp, f"{self._n}.wav")
         self._proc.stdin.write(json.dumps({"text": text, "voice": self.voice, "speed": round(speed, 3), "out": out}) + "\n")
         self._proc.stdin.flush()
-        line = self._proc.stdout.readline()
-        if not line:
-            raise RuntimeError("Kokoro worker stopped (is kokoro installed for KOKORO_PYTHON?)")
+        while True:
+            line = self._proc.stdout.readline()
+            if not line:
+                raise RuntimeError("Kokoro worker stopped (is kokoro installed for KOKORO_PYTHON?)")
+            if line.startswith("{"):
+                break
         res = json.loads(line)
         if "error" in res:
             raise RuntimeError(f"Kokoro: {res['error']}")

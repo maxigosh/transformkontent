@@ -6,7 +6,14 @@ stdout. Kept running so the model loads once for a whole dub.
 """
 
 import json
+import os
 import sys
+
+# answers go out on a private copy of stdout; anything the libraries print (model
+# downloads, warnings) is sent to stderr so it cannot garble an answer
+_answers = os.fdopen(os.dup(1), "w")
+os.dup2(2, 1)
+sys.stdout = sys.stderr
 
 import numpy as np
 import soundfile as sf
@@ -23,6 +30,7 @@ for line in sys.stdin:
         chunks = [a for _, _, a in pipes[lang](req["text"], voice=voice, speed=float(req.get("speed", 1.0)))]
         audio = np.concatenate(chunks) if chunks else np.zeros(2400, np.float32)
         sf.write(req["out"], audio, 24000)
-        print(json.dumps({"ok": True}), flush=True)
+        _answers.write(json.dumps({"ok": True}) + "\n")
     except Exception as e:  # report and keep serving
-        print(json.dumps({"error": f"{type(e).__name__}: {e}"}), flush=True)
+        _answers.write(json.dumps({"error": f"{type(e).__name__}: {e}"}) + "\n")
+    _answers.flush()
