@@ -714,7 +714,7 @@ def build_html(m: dict, gsap_src: str) -> str:
         css_hd, markup = (_notify_markup if notify else _panels_markup)(header, W)
         css_logo += css_hd
         clips.append(markup)
-    if logo:
+    if logo and style != "none":
         css_l, markup = (_footer_markup(logo, W, H) if footer
                          else (_ticker_markup if ticker else _logo_markup)(logo, W))
         css_logo += css_l
@@ -760,7 +760,7 @@ def build_html(m: dict, gsap_src: str) -> str:
         pop.slice(1).forEach((s, i) => tl.to(word, {{ scale: s, duration: FRAME, ease: "none" }}, start + i * FRAME));
         if (pop[pop.length - 1] !== 1) tl.to(word, {{ scale: 1, duration: FRAME, ease: "none" }}, start + (pop.length - 1) * FRAME);
         EXIT.forEach((s, i) => tl.to(word, {{ scale: s, duration: FRAME, ease: "none" }}, end - (EXIT.length - i) * FRAME));
-      }});{_box_caption_script(caps) if boxed else ""}{(_notify_script(header, D) if notify else _panels_script(header)) if header else ""}{_ticker_script(logo, D, W) if ticker else ("" if footer else _logo_script(logo, D))}
+      }});{_box_caption_script(caps) if boxed else ""}{(_notify_script(header, D) if notify else _panels_script(header)) if header else ""}{_ticker_script(logo, D, W) if ticker else ("" if footer or style == "none" else _logo_script(logo, D))}
       window.__timelines["main"] = tl;"""
 
     body = "\n".join(clips)

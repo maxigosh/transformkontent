@@ -24,8 +24,8 @@ def localize_main(argv: list[str]) -> int:
                     "with ElevenLabs; captions are rebuilt from the new voice's timing.")
     p.add_argument("project", help="project directory produced by `vidextract <video> -o <dir>`")
     p.add_argument("--logo", help="logo image (PNG/SVG/WebP with transparency) to replace the overlay")
-    p.add_argument("--logo-style", choices=["ticker", "float", "footer"], default="ticker",
-                   help="ticker: tilted band with a running brand/site ticker that turns like a 3D box on the "
+    p.add_argument("--logo-style", choices=["ticker", "float", "footer", "none"], default="ticker",
+                   help="none: the logo is not drawn (its mark only serves the --header-texts card); ticker: tilted band with a running brand/site ticker that turns like a 3D box on the "
                         "original banner rhythm (default); float: the logo itself rolls in and floats; "
                         "footer: the logo stands still at the bottom of the frame")
     p.add_argument("--header-panels", nargs="+", metavar="IMG",
@@ -74,7 +74,7 @@ def restyle_main(argv: list[str]) -> int:
         prog="vidextract restyle",
         description="Change only the brand block of a localized project (no new translation or dub).")
     p.add_argument("project")
-    p.add_argument("--logo-style", choices=["ticker", "float", "footer"], default="ticker")
+    p.add_argument("--logo-style", choices=["ticker", "float", "footer", "none"], default="ticker")
     p.add_argument("--brand", help="ticker text: brand name")
     p.add_argument("--brand-url", help="ticker text: site address")
     a = p.parse_args(argv)
@@ -100,8 +100,23 @@ def voices_main(argv: list[str]) -> int:
     return 0
 
 
+def serve_main(argv: list[str]) -> int:
+    from .web import serve
+
+    p = argparse.ArgumentParser(prog="vidextract serve",
+                                description="Web interface: upload or link a video, pick languages, voice and logo.")
+    p.add_argument("--host", default="127.0.0.1", help="127.0.0.1 (default; open it via an SSH tunnel) or 0.0.0.0")
+    p.add_argument("--port", type=int, default=8090)
+    p.add_argument("--password", default="", help="required when --host is not local")
+    a = p.parse_args(argv)
+    serve(a.host, a.port, a.password)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
+    if argv and argv[0] == "serve":
+        return serve_main(argv[1:])
     if argv and argv[0] == "voices":
         return voices_main(argv[1:])
     if argv and argv[0] == "localize":

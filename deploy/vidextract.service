@@ -1,0 +1,14 @@
+# systemd unit for the web interface: copy to /etc/systemd/system/, adjust the paths, then
+#   systemctl daemon-reload && systemctl enable --now vidextract
+[Unit]
+Description=vidextract web interface (video localization)
+After=network-online.target docker.service
+
+[Service]
+WorkingDirectory=/transformkontent
+ExecStart=/transformkontent/.venv/bin/python -m vidextract serve --host 127.0.0.1 --port 8090
+Environment=VIDEXTRACT_DATA=/var/lib/vidextract
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

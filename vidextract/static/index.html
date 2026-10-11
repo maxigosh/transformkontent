@@ -1,0 +1,376 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>vidextract — video localization</title>
+<style>
+  :root {
+    --bg: #f4f5f2; --card: #fff; --fg: #1b211d; --muted: #66706a; --line: #dde2dc;
+    --accent: #2f7a3a; --accent-fg: #fff; --chip: #e7efe5; --bad: #b3261e; --warn: #8a5a00;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #111613; --card: #18201b; --fg: #e6ece7; --muted: #9aa69d; --line: #2a352d;
+      --accent: #7cc488; --accent-fg: #0f1511; --chip: #213027; --bad: #ff8a80; --warn: #ffcc80; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { display: flex; align-items: center; gap: 12px; padding: 14px 20px; border-bottom: 1px solid var(--line); background: var(--card); position: sticky; top: 0; z-index: 2; }
+  header h1 { font-size: 18px; margin: 0; flex: 1; }
+  header small { color: var(--muted); font-weight: 400; }
+  main { max-width: 1100px; margin: 0 auto; padding: 20px; display: grid; gap: 20px; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+  section.card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 18px; }
+  h2 { font-size: 16px; margin: 0 0 12px; }
+  h3 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 18px 0 8px; }
+  label { display: block; font-size: 13px; color: var(--muted); margin: 8px 0 4px; }
+  input[type=text], input[type=url], input[type=password], input[type=number], select, textarea {
+    width: 100%; font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+  textarea { resize: vertical; min-height: 70px; }
+  .row { display: flex; gap: 10px; align-items: end; flex-wrap: wrap; }
+  .row > * { flex: 1; min-width: 140px; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .seg button { border: 0; background: transparent; color: var(--fg); padding: 7px 12px; font: inherit; cursor: pointer; }
+  .seg button.on { background: var(--accent); color: var(--accent-fg); }
+  .btn { font: inherit; font-weight: 600; border: 1px solid var(--accent); background: var(--accent); color: var(--accent-fg); border-radius: 8px; padding: 9px 14px; cursor: pointer; }
+  .btn.ghost { background: transparent; color: var(--accent); }
+  .btn.small { padding: 4px 10px; font-size: 13px; }
+  .btn.danger { border-color: var(--bad); color: var(--bad); background: transparent; }
+  .btn:disabled { opacity: .5; cursor: default; }
+  .drop { border: 2px dashed var(--line); border-radius: 10px; padding: 18px; text-align: center; color: var(--muted); cursor: pointer; }
+  .drop.over { border-color: var(--accent); color: var(--accent); }
+  .voices { display: grid; gap: 6px; max-height: 260px; overflow: auto; margin-top: 6px; }
+  .voice { display: flex; gap: 8px; align-items: center; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; }
+  .voice.on { border-color: var(--accent); background: var(--chip); }
+  .voice b { flex: none; }
+  .voice span { color: var(--muted); font-size: 12px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .check { display: flex; gap: 8px; align-items: center; margin: 8px 0; color: var(--fg); font-size: 14px; }
+  .hint { color: var(--muted); font-size: 12px; margin: 4px 0 0; }
+  .err { color: var(--bad); font-size: 13px; min-height: 1em; }
+  .job { border: 1px solid var(--line); border-radius: 10px; padding: 12px; margin-bottom: 12px; }
+  .job .top { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .job .name { font-weight: 600; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pill { font-size: 12px; padding: 2px 8px; border-radius: 99px; background: var(--chip); }
+  .pill.failed { color: var(--bad); } .pill.review { color: var(--warn); }
+  .job video { width: 100%; max-height: 420px; border-radius: 8px; background: #000; margin-top: 8px; }
+  pre.log { max-height: 180px; overflow: auto; background: var(--bg); border-radius: 8px; padding: 8px; font-size: 11px; white-space: pre-wrap; margin: 8px 0 0; }
+  table.tr { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 8px; }
+  table.tr td { border-top: 1px solid var(--line); padding: 4px; vertical-align: top; }
+  table.tr td:first-child { color: var(--muted); width: 45%; }
+  table.tr input { padding: 4px 6px; }
+  dialog { border: 1px solid var(--line); border-radius: 12px; background: var(--card); color: var(--fg); width: min(520px, 92vw); }
+  dialog::backdrop { background: rgba(0,0,0,.4); }
+</style>
+</head>
+<body>
+<header>
+  <h1>vidextract <small data-i="tagline">— video localization</small></h1>
+  <div class="seg" id="uilang"><button data-l="en">EN</button><button data-l="ru">RU</button></div>
+  <button class="btn ghost small" id="openSettings" data-i="settings">Settings</button>
+</header>
+
+<main>
+  <section class="card">
+    <h2 data-i="newjob">New video</h2>
+
+    <h3 data-i="source">1. Video</h3>
+    <div class="seg" id="srcMode"><button data-m="url" class="on" data-i="link">Link</button><button data-m="file" data-i="file">File</button></div>
+    <div id="srcUrl"><label data-i="linkLabel">Link to the video (Facebook, Instagram, TikTok, YouTube…)</label>
+      <input type="url" id="url" placeholder="https://www.facebook.com/reel/…"></div>
+    <div id="srcFile" hidden><div class="drop" id="drop" data-i="dropVideo">Drop a video here or click to choose</div>
+      <input type="file" id="video" accept="video/*" hidden></div>
+
+    <h3 data-i="languages">2. Languages</h3>
+    <div class="row">
+      <div><label data-i="from">From</label><select id="srcLang"></select></div>
+      <div><label data-i="to">To</label><select id="dstLang"></select></div>
+      <div><label data-i="captions">Captions in the video</label>
+        <select id="captions"><option value="auto" data-i="capAuto">Detect</option>
+          <option value="boxes" data-i="capBoxes">Phrases in colour boxes</option>
+          <option value="outline" data-i="capOutline">Words with an outline</option></select></div>
+    </div>
+
+    <h3 data-i="voiceH">3. Voice</h3>
+    <div class="seg" id="engine"><button data-e="voicestudio" class="on">VoiceStudio</button><button data-e="elevenlabs">ElevenLabs</button><button data-e="none" data-i="noVoice">Subtitles only</button></div>
+    <div id="voicePane">
+      <div class="voices" id="voices"></div>
+      <p class="hint" id="voiceHint"></p>
+      <div id="designPane">
+        <label data-i="designLabel">New voice for the character (describe it)</label>
+        <div class="row"><input type="text" id="dName" placeholder="doctor" style="flex:.35">
+          <input type="text" id="dDesc" placeholder="male, middle-aged, low pitch, american accent">
+          <button class="btn ghost small" id="designBtn" style="flex:none" data-i="create">Create</button></div>
+      </div>
+      <label class="check"><input type="checkbox" id="ambience"> <span data-i="ambience">Keep the original sound between phrases (laughter, music)</span></label>
+    </div>
+
+    <h3 data-i="brandH">4. Logo, header and footer</h3>
+    <div class="row">
+      <div><label data-i="logo">Logo (PNG, SVG)</label><input type="file" id="logo" accept="image/*"></div>
+      <div><label data-i="header">Header</label>
+        <select id="header"><option value="none" data-i="hNone">None</option>
+          <option value="notify" data-i="hNotify">Card with the logo, changing taglines</option>
+          <option value="float" data-i="hFloat">Animated logo</option>
+          <option value="ticker" data-i="hTicker">Ticker band</option></select></div>
+    </div>
+    <div id="textsPane" hidden><label data-i="texts">Taglines, one per line (a “word” in quotes is highlighted)</label>
+      <textarea id="texts" placeholder="WHAT IF “NORMAL” IS THE PROBLEM?"></textarea></div>
+    <div id="brandPane" class="row" hidden>
+      <div><label data-i="brand">Brand name</label><input type="text" id="brand" placeholder="PlantOgram"></div>
+      <div><label data-i="site">Site</label><input type="text" id="site" placeholder="plantogram.com.au"></div>
+    </div>
+    <label class="check"><input type="checkbox" id="footer"> <span data-i="footer">Logo at the bottom (still)</span></label>
+
+    <h3 data-i="checkH">5. Before dubbing</h3>
+    <label class="check"><input type="checkbox" id="review" checked> <span data-i="reviewOpt">Let me check and edit the translation first</span></label>
+
+    <div class="row" style="margin-top:14px"><button class="btn" id="start" data-i="start">Transform</button></div>
+    <p class="err" id="formErr"></p>
+  </section>
+
+  <section class="card">
+    <h2 data-i="jobs">Videos</h2>
+    <div id="jobs"><p class="hint" data-i="noJobs">Nothing yet.</p></div>
+  </section>
+</main>
+
+<dialog id="settingsDlg">
+  <h2 data-i="settings">Settings</h2>
+  <p class="hint" data-i="keysHint">Keys stay on this server. Leave a field as •••• to keep the saved key.</p>
+  <label>VoiceStudio URL</label><input type="text" id="sVsUrl">
+  <label data-i="vsKey">VoiceStudio API key (read from its container when empty)</label><input type="password" id="sVsKey">
+  <label>ElevenLabs API key</label><input type="password" id="sEl">
+  <label data-i="translator">Translator</label>
+  <select id="sTr"><option value="free" data-i="trFree">Free (Google Translate, Argos offline)</option><option value="claude">Claude API</option></select>
+  <label>Anthropic API key</label><input type="password" id="sAn">
+  <label data-i="dgKey">Deepgram API key (speech recognition for videos without captions — coming)</label><input type="password" id="sDg">
+  <label data-i="workers">Render workers (Chrome processes, ~256 MB each)</label><input type="number" id="sW" min="1" max="16">
+  <div class="row" style="margin-top:14px"><button class="btn" id="saveSettings" data-i="save">Save</button><button class="btn ghost" id="closeSettings" data-i="close">Close</button></div>
+</dialog>
+
+<dialog id="loginDlg">
+  <h2 data-i="login">Password</h2>
+  <input type="password" id="pw"><p class="err" id="pwErr"></p>
+  <button class="btn" id="loginBtn">OK</button>
+</dialog>
+
+<script>
+const T = {
+  ru: { tagline: "— локализация видео", settings: "Настройки", newjob: "Новое видео", source: "1. Видео", link: "Ссылка", file: "Файл",
+    linkLabel: "Ссылка на видео (Facebook, Instagram, TikTok, YouTube…)", dropVideo: "Перетащите видео сюда или нажмите, чтобы выбрать",
+    languages: "2. Языки", from: "С какого", to: "На какой", captions: "Субтитры в видео", capAuto: "Определить сами",
+    capBoxes: "Фразы в цветных плашках", capOutline: "Слова с обводкой", voiceH: "3. Голос", noVoice: "Только субтитры",
+    designLabel: "Новый голос под персонажа (опишите его)", create: "Создать",
+    ambience: "Оставить оригинальный звук между фразами (смех, музыка)", brandH: "4. Логотип, шапка и подвал", logo: "Логотип (PNG, SVG)",
+    header: "Шапка", hNone: "Нет", hNotify: "Карточка с логотипом, надписи меняются", hFloat: "Анимированный логотип", hTicker: "Бегущая строка",
+    texts: "Надписи, по одной в строке («слово» в кавычках выделяется)", brand: "Название бренда", site: "Сайт",
+    footer: "Логотип внизу (неподвижный)", checkH: "5. Перед озвучкой", reviewOpt: "Сначала дать мне проверить и поправить перевод",
+    start: "Трансформировать", jobs: "Видео", noJobs: "Пока ничего нет.", keysHint: "Ключи хранятся на этом сервере. Оставьте •••• — сохранённый ключ не изменится.",
+    vsKey: "Ключ API VoiceStudio (если пусто — берётся из его контейнера)", translator: "Переводчик", trFree: "Бесплатный (Google Translate, Argos офлайн)",
+    dgKey: "Ключ Deepgram (распознавание речи для видео без субтитров — скоро)", workers: "Процессы рендера (Chrome, ~256 МБ каждый)",
+    save: "Сохранить", close: "Закрыть", login: "Пароль", listen: "▶", pick: "выбрать", picked: "выбран", download: "Скачать",
+    downloadFull: "Полное качество", retry: "Повторить", del: "Удалить", log: "Лог", continue: "Перевод верный — озвучить",
+    queued: "в очереди", running: "работает", review: "проверьте перевод", done: "готово", failed: "ошибка",
+    needSrc: "Вставьте ссылку или выберите файл", needVoice: "Выберите голос", vsDown: "VoiceStudio не отвечает — проверьте настройки",
+    elNoKey: "Укажите ключ ElevenLabs в настройках", noProfiles: "Голосов пока нет — создайте голос по описанию ниже", sent: "Отправлено",
+    trHint: "Слева оригинал, справа перевод. Длину держите близкой к оригиналу." },
+  en: {}
+};
+const EN = {};
+let lang = (localStorage.getItem("vx_lang") || (navigator.language.startsWith("ru") ? "ru" : "en"));
+const t = (k) => (lang === "ru" && T.ru[k]) || EN[k] || k;
+function applyLang() {
+  document.querySelectorAll("[data-i]").forEach((el) => {
+    const k = el.dataset.i;
+    if (!(k in EN)) EN[k] = el.textContent;
+    el.textContent = t(k);
+  });
+  document.querySelectorAll("#uilang button").forEach((b) => b.classList.toggle("on", b.dataset.l === lang));
+  document.documentElement.lang = lang;
+}
+const $ = (s) => document.querySelector(s);
+let token = localStorage.getItem("vx_token") || "";
+async function api(path, opts = {}) {
+  opts.headers = Object.assign({}, opts.headers || {}, token ? { "x-token": token } : {});
+  const r = await fetch(path, opts);
+  if (r.status === 401 && path !== "/api/login") { $("#loginDlg").showModal(); throw new Error("login"); }
+  if (!r.ok) { let m = r.statusText; try { m = (await r.json()).detail || m; } catch (e) {} throw new Error(m); }
+  return r.status === 204 ? null : r.json();
+}
+
+// ---- form state ----
+let srcMode = "url", engine = "voicestudio", voice = "", cfg = null;
+document.querySelectorAll("#srcMode button").forEach((b) => b.onclick = () => {
+  srcMode = b.dataset.m;
+  document.querySelectorAll("#srcMode button").forEach((x) => x.classList.toggle("on", x === b));
+  $("#srcUrl").hidden = srcMode !== "url"; $("#srcFile").hidden = srcMode !== "file";
+});
+const drop = $("#drop");
+drop.onclick = () => $("#video").click();
+drop.ondragover = (e) => { e.preventDefault(); drop.classList.add("over"); };
+drop.ondragleave = () => drop.classList.remove("over");
+drop.ondrop = (e) => { e.preventDefault(); drop.classList.remove("over"); $("#video").files = e.dataTransfer.files; showFile(); };
+$("#video").onchange = showFile;
+function showFile() { const f = $("#video").files[0]; if (f) drop.textContent = f.name + " · " + (f.size / 1e6).toFixed(1) + " MB"; }
+
+document.querySelectorAll("#engine button").forEach((b) => b.onclick = () => {
+  engine = b.dataset.e; voice = "";
+  document.querySelectorAll("#engine button").forEach((x) => x.classList.toggle("on", x === b));
+  $("#voicePane").hidden = engine === "none";
+  $("#designPane").hidden = engine !== "voicestudio";
+  loadVoices();
+});
+$("#header").onchange = () => {
+  const h = $("#header").value;
+  $("#textsPane").hidden = h !== "notify";
+  $("#brandPane").hidden = h !== "ticker";
+  $("#footer").disabled = h === "ticker" || h === "float";
+  if ($("#footer").disabled) $("#footer").checked = false;
+};
+
+async function loadVoices() {
+  const box = $("#voices"); box.innerHTML = ""; $("#voiceHint").textContent = "";
+  if (engine === "none") return;
+  if (engine === "elevenlabs" && cfg && !cfg.settings.elevenlabs_api_key) { $("#voiceHint").textContent = t("elNoKey"); return; }
+  let list = [];
+  try { list = await api("/api/voices?engine=" + engine); }
+  catch (e) { $("#voiceHint").textContent = engine === "voicestudio" ? t("vsDown") + " (" + e.message + ")" : e.message; return; }
+  if (!list.length) $("#voiceHint").textContent = t("noProfiles");
+  list.forEach(addVoice);
+}
+let player = new Audio();
+function addVoice(v) {
+  const row = document.createElement("div"); row.className = "voice" + (v.id === voice ? " on" : "");
+  const play = document.createElement("button"); play.className = "btn ghost small"; play.textContent = t("listen");
+  play.onclick = (e) => { e.stopPropagation(); player.pause();
+    player = new Audio(v.preview || "/api/voices/sample?voice=" + encodeURIComponent(v.id) + (token ? "" : "")); player.play(); };
+  const name = document.createElement("b"); name.textContent = v.name || v.id;
+  const note = document.createElement("span"); note.textContent = v.note || "";
+  row.append(play, name, note);
+  row.onclick = () => { voice = v.id; document.querySelectorAll(".voice").forEach((x) => x.classList.toggle("on", x === row)); };
+  $("#voices").append(row);
+}
+$("#designBtn").onclick = async () => {
+  const name = $("#dName").value.trim(), description = $("#dDesc").value.trim();
+  $("#designBtn").disabled = true; $("#voiceHint").textContent = "…";
+  try { const v = await api("/api/voices/design", { method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name, description }) });
+    $("#voiceHint").textContent = ""; voice = v.id; await loadVoices(); }
+  catch (e) { $("#voiceHint").textContent = e.message; }
+  $("#designBtn").disabled = false;
+};
+
+$("#start").onclick = async () => {
+  $("#formErr").textContent = "";
+  const fd = new FormData();
+  const url = $("#url").value.trim(), file = $("#video").files[0];
+  if (srcMode === "url" ? !url : !file) { $("#formErr").textContent = t("needSrc"); return; }
+  if (engine !== "none" && !voice) { $("#formErr").textContent = t("needVoice"); return; }
+  const options = { url: srcMode === "url" ? url : "", source_lang: $("#srcLang").value, target_lang: $("#dstLang").value,
+    captions: $("#captions").value, tts: engine, voice, keep_ambience: $("#ambience").checked, header: $("#header").value,
+    header_texts: $("#texts").value.split("\n").map((s) => s.trim()).filter(Boolean), footer_logo: $("#footer").checked,
+    brand: $("#brand").value.trim(), brand_url: $("#site").value.trim(), review_translation: $("#review").checked };
+  fd.append("options", JSON.stringify(options));
+  if (srcMode === "file") fd.append("video", file);
+  if ($("#logo").files[0]) fd.append("logo", $("#logo").files[0]);
+  $("#start").disabled = true;
+  try { await api("/api/jobs", { method: "POST", body: fd }); $("#formErr").textContent = t("sent"); refresh(); }
+  catch (e) { $("#formErr").textContent = e.message; }
+  $("#start").disabled = false;
+};
+
+// ---- jobs ----
+const open = new Set(), editing = new Set();
+async function refresh() {
+  let jobs;
+  try { jobs = await api("/api/jobs"); } catch (e) { return; }
+  const box = $("#jobs");
+  if (!jobs.length) { box.innerHTML = "<p class='hint'>" + t("noJobs") + "</p>"; return; }
+  for (const j of jobs) {
+    let el = document.getElementById("job-" + j.id);
+    const key = j.status + j.step + j.result;
+    if (el && el.dataset.key === key && !open.has(j.id)) continue;
+    if (el && editing.has(j.id)) continue;
+    const fresh = document.createElement("div"); fresh.className = "job"; fresh.id = "job-" + j.id; fresh.dataset.key = key;
+    const top = document.createElement("div"); top.className = "top";
+    const name = document.createElement("span"); name.className = "name"; name.textContent = j.source + " · " + j.options.source_lang + "→" + j.options.target_lang;
+    const pill = document.createElement("span"); pill.className = "pill " + j.status; pill.textContent = t(j.status) + (j.status === "running" ? " · " + j.step : "");
+    top.append(name, pill);
+    const logBtn = button(t("log"), "ghost", () => { open.has(j.id) ? open.delete(j.id) : open.add(j.id); refresh(); });
+    top.append(logBtn);
+    if (j.status === "failed") top.append(button(t("retry"), "ghost", async () => { await api(`/api/jobs/${j.id}/retry`, { method: "POST" }); refresh(); }));
+    if (j.status !== "running") top.append(button(t("del"), "danger", async () => { await api(`/api/jobs/${j.id}`, { method: "DELETE" }); fresh.remove(); }));
+    fresh.append(top);
+    if (j.error) { const e = document.createElement("p"); e.className = "err"; e.textContent = j.error; fresh.append(e); }
+    if (j.result) {
+      const v = document.createElement("video"); v.controls = true; v.preload = "metadata"; v.src = `/api/jobs/${j.id}/video`;
+      const dl = document.createElement("div"); dl.className = "row"; dl.style.marginTop = "8px";
+      dl.append(link(t("download"), `/api/jobs/${j.id}/video`), link(t("downloadFull"), `/api/jobs/${j.id}/video?full=1`));
+      fresh.append(v, dl);
+    }
+    if (j.status === "review") fresh.append(await reviewTable(j));
+    if (open.has(j.id)) {
+      const d = await api(`/api/jobs/${j.id}`); const pre = document.createElement("pre"); pre.className = "log"; pre.textContent = d.log;
+      fresh.append(pre); setTimeout(() => pre.scrollTop = pre.scrollHeight, 0);
+    }
+    el ? el.replaceWith(fresh) : box.append(fresh);
+  }
+  box.querySelectorAll(".job").forEach((el) => { if (!jobs.find((j) => "job-" + j.id === el.id)) el.remove(); });
+  box.querySelectorAll(".hint").forEach((h) => h.remove());
+}
+function button(label, kind, fn) { const b = document.createElement("button"); b.className = "btn small " + kind; b.textContent = label; b.onclick = fn; return b; }
+function link(label, href) { const a = document.createElement("a"); a.className = "btn small ghost"; a.textContent = label; a.href = href; a.download = ""; return a; }
+async function reviewTable(j) {
+  editing.add(j.id);
+  const wrap = document.createElement("div");
+  const hint = document.createElement("p"); hint.className = "hint"; hint.textContent = t("trHint");
+  const table = document.createElement("table"); table.className = "tr";
+  const rows = await api(`/api/jobs/${j.id}/translation`);
+  rows.forEach((r) => {
+    const tr = document.createElement("tr"); const a = document.createElement("td"); a.textContent = r.src;
+    const b = document.createElement("td"); const inp = document.createElement("input"); inp.type = "text"; inp.value = r.text; inp.oninput = () => r.text = inp.value;
+    b.append(inp); tr.append(a, b); table.append(tr);
+  });
+  const go = button(t("continue"), "", async () => { go.disabled = true; editing.delete(j.id);
+    await api(`/api/jobs/${j.id}/translation`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(rows) }); refresh(); });
+  go.style.marginTop = "8px";
+  wrap.append(hint, table, go);
+  return wrap;
+}
+
+// ---- settings / login ----
+$("#openSettings").onclick = () => {
+  const s = cfg.settings; $("#sVsUrl").value = s.voicestudio_url || ""; $("#sVsKey").value = s.voicestudio_api_key || "";
+  $("#sEl").value = s.elevenlabs_api_key || ""; $("#sAn").value = s.anthropic_api_key || ""; $("#sDg").value = s.deepgram_api_key || "";
+  $("#sTr").value = s.translator || "free"; $("#sW").value = s.render_workers || 2; $("#settingsDlg").showModal();
+};
+$("#closeSettings").onclick = () => $("#settingsDlg").close();
+$("#saveSettings").onclick = async () => {
+  cfg = await api("/api/settings", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({
+    voicestudio_url: $("#sVsUrl").value.trim(), voicestudio_api_key: $("#sVsKey").value.trim(), elevenlabs_api_key: $("#sEl").value.trim(),
+    anthropic_api_key: $("#sAn").value.trim(), deepgram_api_key: $("#sDg").value.trim(), translator: $("#sTr").value,
+    render_workers: Number($("#sW").value) || 2 }) });
+  $("#settingsDlg").close(); loadVoices();
+};
+$("#loginBtn").onclick = async () => {
+  try { const r = await api("/api/login", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ password: $("#pw").value }) });
+    token = r.token; localStorage.setItem("vx_token", token); document.cookie = "vx_token=" + token + "; path=/; SameSite=Strict";
+    $("#loginDlg").close(); boot(); }
+  catch (e) { $("#pwErr").textContent = e.message; }
+};
+document.querySelectorAll("#uilang button").forEach((b) => b.onclick = () => { lang = b.dataset.l; localStorage.setItem("vx_lang", lang); applyLang(); refresh(); });
+
+async function boot() {
+  applyLang();
+  cfg = await api("/api/config");
+  for (const [code, name] of Object.entries(cfg.languages)) {
+    $("#srcLang").append(new Option(name, code)); $("#dstLang").append(new Option(name, code));
+  }
+  $("#srcLang").value = "ru"; $("#dstLang").value = "en";
+  loadVoices(); refresh(); setInterval(refresh, 4000);
+}
+if (token) document.cookie = "vx_token=" + token + "; path=/; SameSite=Strict";
+boot().catch(() => {});
+</script>
+</body>
+</html>

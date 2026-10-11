@@ -443,3 +443,22 @@ def find_notes(src: str, W: int, H: int, fps: float, lang: str, use_ocr: bool, l
                       "text": text, "bbox": [x, y, ww, hh], "lines": max(1, round(hh / (0.018 * H)))})
     log(f"notes: {len(notes)} small on-screen texts near the bottom")
     return notes
+
+
+def probe_kind(src: str, samples: int = 40) -> str:
+    """'boxes' when the clip's captions are phrases in colour boxes, else 'outline'.
+    A quick look at a few frames spread over the clip, before the full analysis."""
+    from .media import probe, read_frames_at
+
+    info = probe(src)
+    n = max(1, int(info.duration * info.fps))
+    idx = sorted({int(n * (k + 0.5) / samples) for k in range(samples)})
+    W = 540
+    H = int(round(W * info.height / info.width)) // 2 * 2
+    frames = read_frames_at(src, idx, W, H)
+    tr = BoxCaptionTracker(W, H)
+    hits = 0
+    for i, f in frames.items():
+        if any(not b.card and 0.04 <= b.sig.mean() <= 0.5 for b in tr.detect(i, f)):
+            hits += 1
+    return "boxes" if hits >= max(3, 0.2 * len(frames)) else "outline"
