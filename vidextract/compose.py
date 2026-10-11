@@ -630,6 +630,15 @@ def _box_caption_clips(caps: dict, fps: float, duration: float) -> list[str]:
     """One clip per phrase: a box of the source colour over the original box, holding
     the (translated) text. Boxes that moved in the source follow their track."""
     out = ["      <!-- layer 2: phrase captions in boxes (each covers the original box; editable text) -->"]
+    # a cover is held a few frames past its box (fades); when the next box takes the same
+    # place it ends there instead, so the two never show together
+    shown = [p for p in caps["phrases"] if not ("text_out" in p and not p["text_out"].strip())]
+    ends = {}
+    for p in shown:
+        _, cx, cy, w, h = p["track"][-1]
+        nxt = [q for q in shown if p["start"] < q["start"] < p["end"]
+               and abs(q["track"][0][2] - cy) < (h + q["track"][0][4]) / 2]
+        ends[p["id"]] = min([p["end"]] + [q["start"] for q in nxt])
     for p in caps["phrases"]:
         if "text_out" in p and not p["text_out"].strip():
             continue   # translated to nothing (an icon OCR mistook for words): leave the original alone
@@ -642,7 +651,7 @@ def _box_caption_clips(caps: dict, fps: float, duration: float) -> list[str]:
             # title cards: the text fills the card like the original's big lettering
             n_lines = max(1, len(text.split()))
             fs = f" font-size: {min(h / n_lines * 0.62, w / max(4, max(len(t) for t in text.split())) * 1.45):.0f}px;"
-        dur = round(max(1 / fps, min(p["end"], duration) - p["start"]), 3)
+        dur = round(max(1 / fps, min(ends.get(p["id"], p["end"]), duration) - p["start"]), 3)
         out.append(
             f'      <div id="{p["id"]}" class="clip box-cap{" card" if p.get("card") else ""}" data-start="{p["start"]}" '
             f'data-duration="{dur}" data-track-index="2" style="left: {cx}px; top: {cy}px; min-width: {w}px; '
@@ -686,6 +695,200 @@ def _box_caption_script(caps: dict) -> str:
       }});"""
 
 
+FRAME_FONT = "Playfair Display"
+
+
+def _frame_geometry(frame: dict, caps: dict | None, W: int, H: int) -> dict:
+    """Header art across the top, the video window in the middle, a footer band at the
+    bottom. The source frame is cropped to the window's height; the crop keeps the
+    caption boxes inside (they are what a viewer reads)."""
+    header_h = round(W / frame.get("art_aspect", 2.03))
+    rule = max(3, round(W * 0.005))
+    footer_h = round(H * frame.get("footer_frac", 0.076))
+    y0 = header_h + rule
+    box_h = H - footer_h - y0
+    oy = frame.get("focus_y")
+    if oy is None:
+        bottoms = []
+        for p in (caps or {}).get("phrases", []):
+            if not p.get("card"):
+                _, cx, cy, w, h = p["track"][0]
+                bottoms.append(cy + h / 2)
+        bottom = (sorted(bottoms)[int(len(bottoms) * 0.95)] if bottoms else 0.82 * H) + round(0.015 * H)
+        oy = bottom - box_h
+    oy = int(min(max(0, oy), H - box_h))
+    return {"header_h": header_h, "rule": rule, "footer_h": footer_h, "y0": y0, "box_h": box_h, "oy": oy}
+
+
+def _frame_lines(text: str) -> list[tuple[str, str]]:
+    """A tagline as three lines: before the “quoted” word, the word (accent), after it."""
+    import re
+    m = re.search(r"(“[^”]+”|\"[^\"]+\")", text)
+    if not m:
+        return [(text, "fr-a")]
+    out = []
+    if text[:m.start()].strip():
+        out.append((text[:m.start()].strip(), "fr-a"))
+    out.append((m.group(1), "fr-q"))
+    if text[m.end():].strip():
+        out.append((text[m.end():].strip(), "fr-b"))
+    return out
+
+
+def _frame_markup(frame: dict, geo: dict, W: int, H: int) -> tuple[str, str, str]:
+    """CSS, the header (art + taglines + rule), and the footer band (logo)."""
+    hh, ft = geo["header_h"], geo["footer_h"]
+    tags = []
+    for i, t in enumerate(frame["texts"]):
+        lines = "".join(f'<span class="fr-line {cls}">{html.escape(s)}</span>' for s, cls in _frame_lines(t))
+        tags.append(f'        <div class="fr-tag" id="fr-t{i}">{lines}</div>')
+    logo = frame.get("logo")
+    css = f"""
+      @font-face {{
+        font-family: "{FRAME_FONT}";
+        src: url("assets/fonts/PlayfairDisplay-ExtraBold.ttf") format("truetype");
+        font-weight: 800;
+        font-display: block;
+      }}
+      #root {{
+        background: {frame.get("bg", "#fdfdfd")};
+      }}
+      #fr-header {{
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: {W}px;
+        height: {hh}px;
+        background: {frame.get("bg", "#fdfdfd")} url("{frame["art"]}") left center / cover no-repeat;
+        z-index: 6;
+      }}
+      #fr-rule {{
+        position: absolute;
+        left: 0;
+        top: {hh}px;
+        width: {W}px;
+        height: {geo["rule"]}px;
+        background: linear-gradient(90deg, #b8862b, #e2c06a, #b8862b);
+        z-index: 6;
+      }}
+      #fr-tags {{
+        position: absolute;
+        left: {round(W * frame.get("text_left", 0.42))}px;
+        right: {round(W * 0.025)}px;
+        top: 0;
+        height: {hh}px;
+        overflow: hidden;
+      }}
+      .fr-tag {{
+        position: absolute;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        font-family: "{FRAME_FONT}", Georgia, serif;
+        font-weight: 800;
+        text-transform: uppercase;
+        line-height: 0.98;
+        text-align: center;
+      }}
+      .fr-line {{
+        display: block;
+        white-space: nowrap;
+        letter-spacing: -0.01em;
+      }}
+      .fr-a {{ font-size: {round(hh * 0.19)}px; color: {frame.get("color", "#235f35")}; }}
+      .fr-q {{ font-size: {round(hh * 0.205)}px; color: {frame.get("accent", "#b8862b")}; }}
+      .fr-b {{ font-size: {round(hh * 0.15)}px; color: {frame.get("color", "#235f35")}; }}
+      #stage {{
+        position: absolute;
+        left: 0;
+        top: {geo["y0"]}px;
+        width: {W}px;
+        height: {geo["box_h"]}px;
+        overflow: hidden;
+      }}
+      #stage-inner {{
+        position: absolute;
+        left: 0;
+        top: {-geo["oy"]}px;
+        width: {W}px;
+        height: {H}px;
+      }}
+      #fr-footer {{
+        position: absolute;
+        left: 0;
+        top: {H - ft}px;
+        width: {W}px;
+        height: {ft}px;
+        background: {frame.get("bg", "#fdfdfd")};
+        border-top: 1px solid rgba(0, 0, 0, 0.08);
+        z-index: 6;
+      }}
+      #fr-logo {{
+        position: absolute;
+        left: {round(W * 0.045)}px;
+        top: {round(ft * 0.25)}px;
+        height: {round(ft * 0.5)}px;
+      }}
+      .fr-note {{
+        position: absolute;
+        right: {round(W * 0.045)}px;
+        top: {H - ft}px;
+        height: {ft}px;
+        width: {round(W * 0.5)}px;
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        text-align: right;
+        font-family: "{FONT_FAMILY}", sans-serif;
+        font-size: {round(ft * 0.16)}px;
+        line-height: 1.25;
+        color: #5b5b5b;
+        z-index: 7;
+      }}"""
+    header = f"""      <!-- header: the brand art stays; only the tagline beside it changes -->
+      <div id="fr-header">
+        <div id="fr-tags">
+{chr(10).join(tags)}
+        </div>
+      </div>
+      <div id="fr-rule"></div>"""
+    footer = f"""      <!-- footer band: the logo, still -->
+      <div id="fr-footer">{f'<img id="fr-logo" src="{logo}" alt="" />' if logo else ""}</div>"""
+    return css, header, footer
+
+
+def _frame_script(frame: dict, duration: float) -> str:
+    hold = frame.get("hold", 4.5)
+    return f"""
+      // ---- frame header: taglines take turns beside the art (each fitted to the space) ----
+      document.querySelectorAll(".fr-tag .fr-line").forEach((line) => {{
+        const room = line.parentElement.clientWidth * 0.98;
+        const size = parseFloat(getComputedStyle(line).fontSize);
+        if (line.scrollWidth > room) line.style.fontSize = (size * room / line.scrollWidth).toFixed(1) + "px";
+      }});
+      const FR_N = {len(frame["texts"])};
+      for (let k = 0; k < FR_N; k++) tl.set("#fr-t" + k, {{ yPercent: k === 0 ? 0 : 100, opacity: k === 0 ? 1 : 0 }}, 0);
+      for (let t = {hold}, k = 1; t < {duration:.2f} - 0.5; t += {hold}, k++) {{
+        const out = "#fr-t" + ((k - 1) % FR_N), inn = "#fr-t" + (k % FR_N);
+        tl.fromTo(out, {{ yPercent: 0, opacity: 1 }}, {{ yPercent: -100, opacity: 0, duration: 0.5, ease: "power2.in",
+          immediateRender: false }}, t);
+        tl.fromTo(inn, {{ yPercent: 100, opacity: 0 }}, {{ yPercent: 0, opacity: 1, duration: 0.55, ease: "power2.out",
+          immediateRender: false }}, t + 0.3);
+      }}"""
+
+
+def _frame_note_clips(notes: list[dict], fps: float) -> list[str]:
+    """Small print moves into the footer band (its place in the frame is cropped away)."""
+    out = []
+    for n in notes:
+        dur = round(max(1 / fps, n["end"] - n["start"]), 3)
+        out.append(f'      <div id="{n["id"]}" class="clip fr-note" data-start="{n["start"]}" data-duration="{dur}" '
+                   f'data-track-index="5"><span>{html.escape(n.get("text_out") or n["text"])}</span></div>')
+    return out
+
+
 def build_html(m: dict, gsap_src: str) -> str:
     W, H = m["canvas"]["width"], m["canvas"]["height"]
     D = m["source"]["duration"]
@@ -703,9 +906,10 @@ def build_html(m: dict, gsap_src: str) -> str:
     clips = [f"""      <!-- layer 0: footage with overlay/captions painted out -->
       <video id="plate" class="clip" src="{layers["plate"]["src"]}" muted playsinline
         data-start="0" data-duration="{D}" data-track-index="0"></video>"""]
-    logo = layers.get("logo")
+    frame = layers.get("frame")
+    logo = None if frame else layers.get("logo")
     css_logo = ""
-    header = layers.get("header")
+    header = None if frame else layers.get("header")
     style = (logo or {}).get("style")
     ticker = bool(logo) and style == "ticker"
     footer = bool(logo) and style == "footer"
@@ -719,16 +923,20 @@ def build_html(m: dict, gsap_src: str) -> str:
                          else (_ticker_markup if ticker else _logo_markup)(logo, W))
         css_logo += css_l
         clips.append(markup)
-    if not logo and not header and ov and not ov.get("hidden"):
+    if not frame and not logo and not header and ov and not ov.get("hidden"):
         z = ov["zone_px"]
         clips.append(f"""      <!-- layer 1: animated sponsor overlay, VP9 with alpha ({len(ov["states"])} states, see elements.json) -->
       <video id="overlay" class="clip" src="{ov["src"]}" muted playsinline
         data-start="0" data-duration="{D}" data-track-index="1"
         style="top: {z[1]}px; height: {z[3] - z[1]}px"></video>""")
+    frame_outer = []
     if boxed:
         clips += _box_caption_clips(caps, fps, D)
-        clear = _footer_rows(logo, W, H) if footer else None
-        clips += _note_clips(caps.get("notes") or [], fps, clear)
+        if frame:
+            frame_outer += _frame_note_clips(caps.get("notes") or [], fps)
+        else:
+            clear = _footer_rows(logo, W, H) if footer else None
+            clips += _note_clips(caps.get("notes") or [], fps, clear)
     elif caps:
         clips.append("      <!-- layer 2: word captions (editable text) -->")
         for w in caps["words"]:
@@ -737,6 +945,13 @@ def build_html(m: dict, gsap_src: str) -> str:
             clips.append(
                 f'      <div id="{w["id"]}" class="clip caption-word" data-start="{w["start"]}" data-duration="{dur}" '
                 f'data-track-index="2"{pop}><span class="caption-text">{html.escape(w["text"])}</span></div>')
+    if frame:
+        # the footage and everything drawn over it go into a window between the header and the footer
+        geo = _frame_geometry(frame, caps if boxed else None, W, H)
+        css_f, frame_header, frame_footer = _frame_markup(frame, geo, W, H)
+        css_logo += css_f
+        clips = ([frame_header, "      <div id=\"stage\"><div id=\"stage-inner\">"] + clips
+                 + ["      </div></div>", frame_footer] + frame_outer)
     if audio:
         clips.append(f"""      <!-- layer 3: {audio.get("label", "original soundtrack")} -->
       <audio id="audio" src="{audio["src"]}" data-start="0" data-duration="{D}" data-track-index="3" data-volume="1"></audio>""")
@@ -760,7 +975,7 @@ def build_html(m: dict, gsap_src: str) -> str:
         pop.slice(1).forEach((s, i) => tl.to(word, {{ scale: s, duration: FRAME, ease: "none" }}, start + i * FRAME));
         if (pop[pop.length - 1] !== 1) tl.to(word, {{ scale: 1, duration: FRAME, ease: "none" }}, start + (pop.length - 1) * FRAME);
         EXIT.forEach((s, i) => tl.to(word, {{ scale: s, duration: FRAME, ease: "none" }}, end - (EXIT.length - i) * FRAME));
-      }});{_box_caption_script(caps) if boxed else ""}{(_notify_script(header, D) if notify else _panels_script(header)) if header else ""}{_ticker_script(logo, D, W) if ticker else ("" if footer or style == "none" else _logo_script(logo, D))}
+      }});{_box_caption_script(caps) if boxed else ""}{(_notify_script(header, D) if notify else _panels_script(header)) if header else ""}{_ticker_script(logo, D, W) if ticker else ("" if footer or style == "none" else _logo_script(logo, D))}{_frame_script(frame, D) if frame else ""}
       window.__timelines["main"] = tl;"""
 
     body = "\n".join(clips)
@@ -822,6 +1037,9 @@ def write_project(out: Path, manifest: dict) -> None:
     fonts.mkdir(parents=True, exist_ok=True)
     shutil.copy(HERE / "assets" / "fonts" / f"{FONT_FAMILY}.ttf", fonts / f"{FONT_FAMILY}.ttf")
     shutil.copy(HERE / "assets" / "fonts" / "OFL.txt", fonts / "OFL.txt")
+    if manifest["layers"].get("frame"):
+        for f in ("PlayfairDisplay-ExtraBold.ttf", "PlayfairDisplay-OFL.txt"):
+            shutil.copy(HERE / "assets" / "fonts" / f, fonts / f)
     gsap_src = _vendor_gsap(out / "assets" / "vendor")
     (out / "index.html").write_text(build_html(manifest, gsap_src))
     (out / "meta.json").write_text(json.dumps({"id": name, "name": name}, indent=2))

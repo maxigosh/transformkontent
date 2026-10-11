@@ -28,6 +28,8 @@ class LocalizeOptions:
                                          # | footer: the logo standing still at the bottom of the frame
     header_panels: list[str] | None = None  # images turned through on a 3D prism at the top
     header_texts: list[str] | None = None   # taglines shown one at a time in a notification card at the top
+    frame_art: str | None = None          # layout "frame": this art across the top with the taglines beside it,
+                                          # the video in a window below, the logo in a footer band
     header_hold: float = 4.0             # seconds per header panel when the source had no banner rhythm
     brand: str | None = None             # ticker text, e.g. the brand name
     brand_url: str | None = None         # ticker text, e.g. the site
@@ -132,7 +134,18 @@ def run(project: str, opt: LocalizeOptions, log=_log) -> dict:
         parts = "mark + wordmark animated separately" if prepared["mark"] else "single piece"
         log(f"logo ({opt.logo_style}): {src.name} in zone y={zone[1]}..{zone[3]}, {parts}, {len(beats)} pop beats")
 
-    if opt.header_texts:
+    if opt.frame_art:
+        import cv2
+        art = cv2.imread(opt.frame_art)
+        if art is None:
+            raise SystemExit(f"cannot read {opt.frame_art}")
+        (proj / "assets" / "frame_art.png").write_bytes(Path(opt.frame_art).read_bytes())
+        logo = layers.get("logo") or {}
+        layers["frame"] = {"art": "assets/frame_art.png", "art_aspect": round(art.shape[1] / art.shape[0], 4),
+                           "texts": opt.header_texts or [], "logo": logo.get("src"), "hold": opt.header_hold}
+        layers.pop("header", None)
+        log(f"layout: frame — art {Path(opt.frame_art).name}, {len(opt.header_texts or [])} taglines, logo in the footer")
+    elif opt.header_texts:
         ov = layers.get("overlay")
         logo = layers.get("logo") or {}
         layers["header"] = {"style": "notify", "texts": opt.header_texts,
