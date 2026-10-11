@@ -125,12 +125,15 @@ class VoiceStudioTTS:
             headers["Authorization"] = f"Bearer {self.api_key}"
         req = urllib.request.Request(self.url + "/v1/audio/speech", data=json.dumps(body).encode(), headers=headers)
         try:
-            with urllib.request.urlopen(req, timeout=1800) as r:
+            with urllib.request.urlopen(req, timeout=float(os.environ.get("VOICESTUDIO_TIMEOUT", "900"))) as r:
                 audio = r.read()
         except urllib.error.HTTPError as e:
             hint = (" — set VOICESTUDIO_API_KEY to the server's OMNIVOICE_API_KEY "
                     "(docker exec voicestudio printenv OMNIVOICE_API_KEY)") if e.code == 401 else ""
             raise RuntimeError(f"VoiceStudio {e.code}: {e.read().decode(errors='replace')[:500]}{hint}") from None
+        except TimeoutError:
+            raise RuntimeError(f"VoiceStudio gave no answer in {os.environ.get('VOICESTUDIO_TIMEOUT', '900')} s "
+                               "(stuck? docker restart voicestudio; VOICESTUDIO_TIMEOUT=... to wait longer)") from None
         except urllib.error.URLError as e:
             raise RuntimeError(f"VoiceStudio is not reachable at {self.url} ({e.reason})") from None
         return audio, estimate_words(text, decode_audio(audio))

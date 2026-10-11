@@ -407,12 +407,12 @@ def _dub(proj: Path, phrases: list[dict], D: float, opt: LocalizeOptions, log,
     words: list[dict] = []
     cursor = 0.0
     overflow = 0
-    for p in phrases:
+    todo = [p for p in phrases if p["text"].strip()]
+    for k, p in enumerate(todo, 1):
         text = p["text"].strip()
-        if not text:
-            continue
         start = max(p["start"], cursor)
         slot_end = min(D, p["slot_end"] if p["slot_end"] is not None else D)
+        log(f"  … {p['id']} ({k}/{len(todo)}) speaking: {text[:60]}")   # shows where a slow engine is
         speech = synthesize_fitted(tts, text, slot_end - start)
         a = int(start * SR)
         b = min(len(track), a + len(speech.pcm))
