@@ -19,6 +19,7 @@
 #   TTS=elevenlabs                      or "voicestudio" (local VoiceStudio server, free; VOICESTUDIO_URL,
 #                                       default http://127.0.0.1:3900), or "mock" for a dry run with a test tone
 #   WORK=work/<video name>              project directory (reused if it exists; FRESH=1 to redo)
+#   RENDER_WORKERS=2                    parallel Chrome processes for the render (more = faster, more RAM)
 #   KEEP_AMBIENCE=1                     0 = drop the original track completely
 #   CAPTIONS=outline                    outline: one white outlined word at a time (default);
 #                                       boxes: phrases in solid colour boxes (white on red) + title cards
@@ -164,5 +165,7 @@ fi
 
 say "3/3 rendering"
 mkdir -p "$(dirname "$OUT")"
-(cd "$WORK" && hyperframes lint . && hyperframes render -o "$OUT")
+# servers have no GPU: probing for one made the render fail with "Something went wrong";
+# RENDER_WORKERS Chrome processes (~256 MB each) leave room for a local voice engine
+(cd "$WORK" && hyperframes lint . && hyperframes render -o "$OUT" --no-browser-gpu --workers "${RENDER_WORKERS:-2}")
 say "done → $OUT"
