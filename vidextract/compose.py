@@ -432,32 +432,22 @@ def _notify_text(text: str) -> str:
 
 
 def _notify_markup(header: dict, W: int) -> tuple[str, str]:
-    """A phone-notification card at the top: the brand icon, the brand name, and one
-    tagline at a time. Each tagline drops in, stays, and slides back up."""
+    """A phone-notification card at the top: the brand icon and name stay put for the
+    whole video; only the tagline inside the card changes, one after another."""
     z = header["zone_px"]
     cw = round(W * 0.9)
     fs = round(W * 0.05)
     icon = header.get("icon")
-    cards = []
-    for i, text in enumerate(header["texts"]):
-        icon_html = f'<span class="nt-icon" style="background-image: url(&quot;{icon}&quot;)"></span>' if icon else ""
-        cards.append(
-            f'        <div class="nt-card" id="nt-{i}">{icon_html}<span class="nt-body">'
-            f'<span class="nt-head"><span class="nt-app">{html.escape(header.get("app", ""))}</span>'
-            f'<span class="nt-now">now</span></span><span class="nt-text">{_notify_text(text)}</span></span></div>')
+    lines = "\n".join(f'            <span class="nt-line" id="nt-t{i}">{_notify_text(t)}</span>'
+                      for i, t in enumerate(header["texts"]))
+    icon_html = f'<span class="nt-icon" style="background-image: url(&quot;{icon}&quot;)"></span>' if icon else ""
     css = f"""
-      #nt-wrap {{
+      #nt-card {{
         position: absolute;
         left: {(W - cw) // 2}px;
         top: {z[1] + round(W * 0.02)}px;
         width: {cw}px;
         z-index: 5;
-      }}
-      .nt-card {{
-        position: absolute;
-        left: 0;
-        top: 0;
-        width: 100%;
         box-sizing: border-box;
         display: flex;
         align-items: center;
@@ -495,7 +485,16 @@ def _notify_markup(header: dict, W: int) -> tuple[str, str]:
       .nt-now {{
         color: #808080;
       }}
-      .nt-text {{
+      .nt-texts {{
+        position: relative;
+        height: {round(fs * 1.08 * 2)}px;   /* room for a two-line tagline */
+        overflow: hidden;
+      }}
+      .nt-line {{
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: 0;
         font-weight: 800;
         font-size: {fs}px;
         line-height: 1.08;
@@ -504,25 +503,30 @@ def _notify_markup(header: dict, W: int) -> tuple[str, str]:
       .nt-accent {{
         color: {header.get("accent", "#c08a1e")};
       }}"""
-    markup = f"""      <!-- layer 1: header as a phone notification: one tagline at a time drops in from the top -->
-      <div id="nt-wrap">
-{chr(10).join(cards)}
+    markup = f"""      <!-- layer 1: header as a phone notification. The card (brand icon and name) stays on screen
+           the whole time; only the tagline in it changes. -->
+      <div id="nt-card">{icon_html}<span class="nt-body"><span class="nt-head"><span class="nt-app">{html.escape(header.get("app", ""))}</span><span class="nt-now">now</span></span>
+          <span class="nt-texts">
+{lines}
+          </span></span>
       </div>"""
     return css, markup
 
 
 def _notify_script(header: dict, duration: float) -> str:
-    hold, gap = header.get("hold", 4.5), header.get("gap", 0.8)
+    hold = header.get("hold", 4.5)
     return f"""
-      // ---- header notifications: drop in, stay, slide back up; the next tagline follows ----
+      // ---- header: the card drops in once and stays; the taglines take turns inside it ----
       const NT_N = {len(header["texts"])};
-      const NT_HOLD = {hold}, NT_GAP = {gap}, NT_IN = 0.55, NT_OUT = 0.45;
-      for (let k = 0; k < NT_N; k++) tl.set("#nt-" + k, {{ yPercent: -160, opacity: 1 }}, 0);
-      for (let t = 0.5, k = 0; t < {duration:.2f} - 1; t += NT_IN + NT_HOLD + NT_OUT + NT_GAP, k++) {{
-        const card = "#nt-" + (k % NT_N);
-        tl.fromTo(card, {{ yPercent: -160 }}, {{ yPercent: 0, duration: NT_IN, ease: "back.out(1.3)", immediateRender: false }}, t);
-        tl.fromTo(card, {{ yPercent: 0 }}, {{ yPercent: -160, duration: NT_OUT, ease: "power2.in", immediateRender: false }},
-          t + NT_IN + NT_HOLD);
+      const NT_HOLD = {hold}, NT_SWAP = 0.5;
+      tl.fromTo("#nt-card", {{ yPercent: -160 }}, {{ yPercent: 0, duration: 0.6, ease: "back.out(1.3)" }}, 0.2);
+      for (let k = 0; k < NT_N; k++) tl.set("#nt-t" + k, {{ yPercent: k === 0 ? 0 : 110, opacity: k === 0 ? 1 : 0 }}, 0);
+      for (let t = 0.2 + NT_HOLD, k = 1; t < {duration:.2f} - 0.5; t += NT_HOLD, k++) {{
+        const out = "#nt-t" + ((k - 1) % NT_N), inn = "#nt-t" + (k % NT_N);
+        tl.fromTo(out, {{ yPercent: 0, opacity: 1 }}, {{ yPercent: -110, opacity: 0, duration: NT_SWAP, ease: "power2.in",
+          immediateRender: false }}, t);
+        tl.fromTo(inn, {{ yPercent: 110, opacity: 0 }}, {{ yPercent: 0, opacity: 1, duration: NT_SWAP, ease: "power2.out",
+          immediateRender: false }}, t + NT_SWAP * 0.6);
       }}"""
 
 
@@ -622,7 +626,7 @@ def _box_caption_css(style: dict, W: int) -> str:
       }}"""
 
 
-def _box_caption_clips(caps: dict, fps: float) -> list[str]:
+def _box_caption_clips(caps: dict, fps: float, duration: float) -> list[str]:
     """One clip per phrase: a box of the source colour over the original box, holding
     the (translated) text. Boxes that moved in the source follow their track."""
     out = ["      <!-- layer 2: phrase captions in boxes (each covers the original box; editable text) -->"]
@@ -638,7 +642,7 @@ def _box_caption_clips(caps: dict, fps: float) -> list[str]:
             # title cards: the text fills the card like the original's big lettering
             n_lines = max(1, len(text.split()))
             fs = f" font-size: {min(h / n_lines * 0.62, w / max(4, max(len(t) for t in text.split())) * 1.45):.0f}px;"
-        dur = round(max(1 / fps, p["end"] - p["start"]), 3)
+        dur = round(max(1 / fps, min(p["end"], duration) - p["start"]), 3)
         out.append(
             f'      <div id="{p["id"]}" class="clip box-cap{" card" if p.get("card") else ""}" data-start="{p["start"]}" '
             f'data-duration="{dur}" data-track-index="2" style="left: {cx}px; top: {cy}px; min-width: {w}px; '
@@ -722,7 +726,7 @@ def build_html(m: dict, gsap_src: str) -> str:
         data-start="0" data-duration="{D}" data-track-index="1"
         style="top: {z[1]}px; height: {z[3] - z[1]}px"></video>""")
     if boxed:
-        clips += _box_caption_clips(caps, fps)
+        clips += _box_caption_clips(caps, fps, D)
         clear = _footer_rows(logo, W, H) if footer else None
         clips += _note_clips(caps.get("notes") or [], fps, clear)
     elif caps:
