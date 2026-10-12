@@ -33,6 +33,9 @@ def localize_main(argv: list[str]) -> int:
     p.add_argument("--header-texts", metavar="FILE",
                    help="text file, one tagline per line: shown one at a time in a phone-notification card at the "
                         "top (a word in “quotes” gets the accent colour)")
+    p.add_argument("--header-images", metavar="IMG", nargs="+",
+                   help="layout 'frame': whole header pictures that take turns with the taglines, each held as "
+                        "long as reading it takes")
     p.add_argument("--frame-art", metavar="IMG",
                    help="layout 'frame': this art fills a header band (taglines from --header-texts change beside "
                         "it), the video plays in a window below, and the --logo stands in a footer band")
@@ -65,7 +68,7 @@ def localize_main(argv: list[str]) -> int:
     localize(a.project, LocalizeOptions(
         logo=a.logo, logo_style=a.logo_style, brand=a.brand, brand_url=a.brand_url,
         header_panels=a.header_panels, header_hold=a.header_hold,
-        frame_art=a.frame_art,
+        frame_art=a.frame_art, header_images=a.header_images,
         header_texts=[ln.strip() for ln in open(a.header_texts, encoding="utf-8") if ln.strip()] if a.header_texts else None, lang=a.lang, lang_code=a.lang_code, translation=a.translation, translator=a.translator, source_lang=a.source_lang,
         translate_only=a.translate_only, tts=a.tts, voice=a.voice, tts_model=a.tts_model,
         dub=not a.subtitles_only, remove_overlay=a.remove_overlay, keep_ambience=not a.no_ambience))

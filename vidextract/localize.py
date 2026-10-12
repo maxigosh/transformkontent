@@ -21,6 +21,35 @@ from .translate import load_translation, phrases_from_words, translate_claude, t
 from .tts import SR, CachedTTS, ElevenLabsTTS, KokoroTTS, MockTTS, VoiceStudioTTS, synthesize_fitted
 
 
+def frame_slides(proj: Path, texts: list[str], images: list[str]) -> list[dict]:
+    """The frame header's turns: header pictures and taglines take turns (picture, tagline,
+    picture, ...; whatever is left over follows), each held as long as reading it takes.
+    A picture's words are counted by OCR on its text side."""
+    import re
+
+    import cv2
+
+    from . import ocr
+    from .compose import reading_hold
+
+    pics = []
+    for k, src in enumerate(images, 1):
+        img = cv2.imread(src)
+        if img is None:
+            raise SystemExit(f"cannot read {src}")
+        dst = f"assets/header_{k}{Path(src).suffix.lower() or '.png'}"
+        (proj / dst).write_bytes(Path(src).read_bytes())
+        pics.append((dst, img[:int(img.shape[0] * 0.9), int(img.shape[1] * 0.38):]))
+    counts = [len(re.findall(r"[A-Za-z0-9’'][A-Za-z0-9’'-]*", r["text"]))
+              for r in ocr.recognize([c for _, c in pics], "eng", psm="3")] if pics else []
+    a = [{"image": dst, "words": n, "hold": reading_hold(n)} for (dst, _), n in zip(pics, counts)]
+    b = [{"text": t, "hold": reading_hold(len(t.split()))} for t in texts]
+    out = []
+    for k in range(max(len(a), len(b))):
+        out += a[k:k + 1] + b[k:k + 1]
+    return out
+
+
 @dataclass
 class LocalizeOptions:
     logo: str | None = None
@@ -30,6 +59,7 @@ class LocalizeOptions:
     header_texts: list[str] | None = None   # taglines shown one at a time in a notification card at the top
     frame_art: str | None = None          # layout "frame": this art across the top with the taglines beside it,
                                           # the video in a window below, the logo in a footer band
+    header_images: list[str] | None = None  # layout "frame": whole header pictures taking turns with the taglines
     header_hold: float = 4.0             # seconds per header panel when the source had no banner rhythm
     brand: str | None = None             # ticker text, e.g. the brand name
     brand_url: str | None = None         # ticker text, e.g. the site
@@ -141,10 +171,14 @@ def run(project: str, opt: LocalizeOptions, log=_log) -> dict:
             raise SystemExit(f"cannot read {opt.frame_art}")
         (proj / "assets" / "frame_art.png").write_bytes(Path(opt.frame_art).read_bytes())
         logo = layers.get("logo") or {}
+        slides = frame_slides(proj, opt.header_texts or [], opt.header_images or [])
         layers["frame"] = {"art": "assets/frame_art.png", "art_aspect": round(art.shape[1] / art.shape[0], 4),
-                           "texts": opt.header_texts or [], "logo": logo.get("src"), "hold": opt.header_hold}
+                           "texts": opt.header_texts or [], "slides": slides, "logo": logo.get("src"),
+                           "hold": opt.header_hold}
         layers.pop("header", None)
-        log(f"layout: frame — art {Path(opt.frame_art).name}, {len(opt.header_texts or [])} taglines, logo in the footer")
+        log(f"layout: frame — art {Path(opt.frame_art).name}, {len(opt.header_texts or [])} taglines, "
+            f"{len(opt.header_images or [])} header pictures, logo in the footer; on screen "
+            + ", ".join(f"{sl['hold']:g}s" for sl in slides))
     elif opt.header_texts:
         ov = layers.get("overlay")
         logo = layers.get("logo") or {}

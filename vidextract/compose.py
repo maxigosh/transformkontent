@@ -734,6 +734,20 @@ def _frame_geometry(frame: dict, caps: dict | None, W: int, H: int) -> dict:
     return {"header_h": header_h, "rule": rule, "footer_h": footer_h, "y0": y0, "box_h": box_h, "oy": oy}
 
 
+def reading_hold(words: int) -> float:
+    """Seconds a header needs on screen to be read while the video plays: a moment for
+    the eye to get there, then about 2.5 words a second; never shorter than 5 s."""
+    return round(min(18.0, max(5.0, 1.5 + words / 2.5)), 1)
+
+
+def _frame_slides(frame: dict) -> list[dict]:
+    """The header's turns: a tagline written beside the art ({"text"}) or a whole header
+    picture ({"image"}), each with its own time on screen."""
+    if frame.get("slides"):
+        return frame["slides"]
+    return [{"text": t, "hold": frame.get("hold", 4.5)} for t in frame.get("texts", [])]
+
+
 def _frame_lines(text: str) -> list[tuple[str, str]]:
     """A tagline as three lines: before the “quoted” word, the word (accent), after it."""
     import re
@@ -752,9 +766,12 @@ def _frame_lines(text: str) -> list[tuple[str, str]]:
 def _frame_markup(frame: dict, geo: dict, W: int, H: int) -> tuple[str, str, str]:
     """CSS, the header (art + taglines + rule), and the footer band (logo)."""
     hh, ft = geo["header_h"], geo["footer_h"]
-    tags = []
-    for i, t in enumerate(frame["texts"]):
-        lines = "".join(f'<span class="fr-line {cls}">{html.escape(s)}</span>' for s, cls in _frame_lines(t))
+    tags, pics = [], []
+    for i, sl in enumerate(_frame_slides(frame)):
+        if sl.get("image"):
+            pics.append(f'        <img class="fr-pic" id="fr-t{i}" src="{sl["image"]}" alt="" />')
+            continue
+        lines = "".join(f'<span class="fr-line {cls}">{html.escape(s)}</span>' for s, cls in _frame_lines(sl["text"]))
         tags.append(f'        <div class="fr-tag" id="fr-t{i}">{lines}</div>')
     logo = frame.get("logo")
     css = f"""
@@ -811,6 +828,15 @@ def _frame_markup(frame: dict, geo: dict, W: int, H: int) -> tuple[str, str, str
         white-space: nowrap;
         letter-spacing: -0.01em;
       }}
+      .fr-pic {{
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: {W}px;
+        height: {hh}px;
+        object-fit: cover;
+        opacity: 0;
+      }}
       .fr-a {{ font-size: {round(hh * 0.19)}px; color: {frame.get("color", "#235f35")}; }}
       .fr-q {{ font-size: {round(hh * 0.205)}px; color: {frame.get("accent", "#b8862b")}; }}
       .fr-b {{ font-size: {round(hh * 0.15)}px; color: {frame.get("color", "#235f35")}; }}
@@ -866,6 +892,7 @@ def _frame_markup(frame: dict, geo: dict, W: int, H: int) -> tuple[str, str, str
         <div id="fr-tags">
 {chr(10).join(tags)}
         </div>
+{chr(10).join(pics)}
       </div>
       <div id="fr-rule"></div>"""
     footer = f"""      <!-- footer band: the logo, still -->
@@ -874,22 +901,41 @@ def _frame_markup(frame: dict, geo: dict, W: int, H: int) -> tuple[str, str, str
 
 
 def _frame_script(frame: dict, duration: float) -> str:
-    hold = frame.get("hold", 4.5)
+    """Turns of the header, each held for its own time. Tagline to tagline slides up;
+    to or from a header picture the two cross-fade."""
+    slides = _frame_slides(frame)
+    if not slides:
+        return ""
+    kinds = ["image" if sl.get("image") else "text" for sl in slides]
+    turns, t, k = [], 0.0, 0
+    while True:
+        t += slides[k % len(slides)].get("hold", 4.5)
+        if t >= duration - 1.0:
+            break
+        k += 1
+        turns.append([round(t, 2), (k - 1) % len(slides), k % len(slides)])
     return f"""
-      // ---- frame header: taglines take turns beside the art (each fitted to the space) ----
+      // ---- frame header: taglines and header pictures take turns, each held long enough to read ----
       document.querySelectorAll(".fr-tag .fr-line").forEach((line) => {{
         const room = line.parentElement.clientWidth * 0.98;
         const size = parseFloat(getComputedStyle(line).fontSize);
         if (line.scrollWidth > room) line.style.fontSize = (size * room / line.scrollWidth).toFixed(1) + "px";
       }});
-      const FR_N = {len(frame["texts"])};
-      for (let k = 0; k < FR_N; k++) tl.set("#fr-t" + k, {{ yPercent: k === 0 ? 0 : 100, opacity: k === 0 ? 1 : 0 }}, 0);
-      for (let t = {hold}, k = 1; t < {duration:.2f} - 0.5; t += {hold}, k++) {{
-        const out = "#fr-t" + ((k - 1) % FR_N), inn = "#fr-t" + (k % FR_N);
-        tl.fromTo(out, {{ yPercent: 0, opacity: 1 }}, {{ yPercent: -100, opacity: 0, duration: 0.5, ease: "power2.in",
-          immediateRender: false }}, t);
-        tl.fromTo(inn, {{ yPercent: 100, opacity: 0 }}, {{ yPercent: 0, opacity: 1, duration: 0.55, ease: "power2.out",
-          immediateRender: false }}, t + 0.3);
+      const FR_KIND = {json.dumps(kinds)};
+      FR_KIND.forEach((kind, k) => tl.set("#fr-t" + k, kind === "text" ? {{ yPercent: k === 0 ? 0 : 100, opacity: k === 0 ? 1 : 0 }}
+                                                                    : {{ opacity: k === 0 ? 1 : 0 }}, 0));
+      for (const [t, a, b] of {json.dumps(turns)}) {{
+        const out = "#fr-t" + a, inn = "#fr-t" + b;
+        if (FR_KIND[a] === "text" && FR_KIND[b] === "text") {{
+          tl.fromTo(out, {{ yPercent: 0, opacity: 1 }}, {{ yPercent: -100, opacity: 0, duration: 0.5, ease: "power2.in",
+            immediateRender: false }}, t);
+          tl.fromTo(inn, {{ yPercent: 100, opacity: 0 }}, {{ yPercent: 0, opacity: 1, duration: 0.55, ease: "power2.out",
+            immediateRender: false }}, t + 0.3);
+        }} else {{
+          if (FR_KIND[b] === "text") tl.set(inn, {{ yPercent: 0 }}, t);
+          tl.fromTo(inn, {{ opacity: 0 }}, {{ opacity: 1, duration: 0.7, ease: "power1.inOut", immediateRender: false }}, t);
+          tl.fromTo(out, {{ opacity: 1 }}, {{ opacity: 0, duration: 0.7, ease: "power1.inOut", immediateRender: false }}, t);
+        }}
       }}"""
 
 
