@@ -885,6 +885,10 @@ def _frame_markup(frame: dict, geo: dict, W: int, H: int) -> tuple[str, str, str
         height: 100%;
         object-fit: contain;
       }}
+      #fr-sprite {{
+        position: absolute;
+        inset: 0;
+      }}
       #fr-ring {{
         position: absolute;
         inset: 4%;
@@ -916,8 +920,12 @@ def _frame_markup(frame: dict, geo: dict, W: int, H: int) -> tuple[str, str, str
 {chr(10).join(pics)}
       </div>
       <div id="fr-rule"></div>"""
-    eye = (f'<div id="fr-eye"><div id="fr-ring"></div><img src="{frame["eye"]["src"]}" alt="" /></div>'
-           if frame.get("eye") else "")
+    ey = frame.get("eye") or {}
+    if ey.get("sprite"):
+        eye = (f'<div id="fr-eye"><div id="fr-sprite" style="background: url({ey["sprite"]}) 0 0 / '
+               f'{ey["frames"] * 100}% 100% no-repeat"></div></div>')
+    else:
+        eye = f'<div id="fr-eye"><div id="fr-ring"></div><img src="{ey["src"]}" alt="" /></div>' if ey else ""
     footer = f"""      <!-- footer band: the logo, still -->
       <div id="fr-footer">{f'<img id="fr-logo" src="{logo}" alt="" />' if logo else ""}{eye}</div>"""
     return css, header, footer
@@ -939,6 +947,15 @@ def _frame_script(frame: dict, duration: float) -> str:
         turns.append([round(t, 2), (k - 1) % len(slides), k % len(slides)])
     eye = frame.get("eye")
     eye_js = ""
+    if eye and eye.get("sprite"):
+        # a looping animation (from a GIF) played frame by frame as a sprite strip, seek-safe
+        eye_js = f"""
+      // ---- the eye in the footer opens and closes, looping its own animation ----
+      {{
+        const N = {eye["frames"]}, FPS = {eye["fps"]};
+        for (let i = 0, t = 0; t < {duration:.2f}; i++, t = i / FPS)
+          tl.set("#fr-sprite", {{ backgroundPosition: ((i % N) * 100 / (N - 1)) + "% 0" }}, t);
+      }}"""
     if eye and eye.get("levels"):
         eye_js = f"""
       // ---- the eye in the footer breathes with the voice: louder speech, bigger eye, a ring goes out ----
