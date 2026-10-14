@@ -597,7 +597,7 @@ def _box_caption_css(style: dict, W: int) -> str:
         background: {style["box_color"]};
         color: {style["text_color"]};
         font-family: "{FONT_FAMILY}", sans-serif;
-        font-weight: 500;
+        font-weight: {style.get("font_weight", 500)};
         font-size: {style["font_px"]:.0f}px;
         line-height: 1.12;
         text-align: center;
@@ -716,7 +716,7 @@ def _frame_geometry(frame: dict, caps: dict | None, W: int, H: int) -> dict:
     """Header art across the top, the video window in the middle, a footer band at the
     bottom. The source frame is cropped to the window's height; the crop keeps the
     caption boxes inside (they are what a viewer reads)."""
-    header_h = round(W / frame.get("art_aspect", 2.03))
+    header_h = round(H * frame["header_frac"]) if frame.get("header_frac") else round(W / frame.get("art_aspect", 2.03))
     rule = max(3, round(W * 0.005))
     footer_h = round(H * frame.get("footer_frac", 0.076))
     y0 = header_h + rule
@@ -790,7 +790,7 @@ def _frame_markup(frame: dict, geo: dict, W: int, H: int) -> tuple[str, str, str
         top: 0;
         width: {W}px;
         height: {hh}px;
-        background: {frame.get("bg", "#fdfdfd")} url("{frame["art"]}") left center / cover no-repeat;
+        background: {frame.get("bg", "#fdfdfd")} url("{frame["art"]}") left center / {frame.get("art_size", "cover")} no-repeat;
         z-index: 6;
       }}
       #fr-rule {{
@@ -817,8 +817,8 @@ def _frame_markup(frame: dict, geo: dict, W: int, H: int) -> tuple[str, str, str
         flex-direction: column;
         align-items: center;
         justify-content: center;
-        font-family: "{FRAME_FONT}", Georgia, serif;
-        font-weight: 800;
+        font-family: "{frame.get("font", FRAME_FONT)}", Georgia, serif;
+        font-weight: {frame.get("font_weight", 800)};
         text-transform: uppercase;
         line-height: 0.98;
         text-align: center;
@@ -871,6 +871,27 @@ def _frame_markup(frame: dict, geo: dict, W: int, H: int) -> tuple[str, str, str
         top: {round(ft * 0.25)}px;
         height: {round(ft * 0.5)}px;
       }}
+      #fr-eye {{
+        position: absolute;
+        right: {round(W * 0.035)}px;
+        top: {round(ft * 0.08)}px;
+        width: {round(ft * 0.84)}px;
+        height: {round(ft * 0.84)}px;
+      }}
+      #fr-eye img {{
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+      }}
+      #fr-ring {{
+        position: absolute;
+        inset: 4%;
+        border-radius: 50%;
+        border: {max(2, round(ft * 0.025))}px solid #c9932e;
+        opacity: 0;
+      }}
       .fr-note {{
         position: absolute;
         right: {round(W * 0.045)}px;
@@ -895,8 +916,10 @@ def _frame_markup(frame: dict, geo: dict, W: int, H: int) -> tuple[str, str, str
 {chr(10).join(pics)}
       </div>
       <div id="fr-rule"></div>"""
+    eye = (f'<div id="fr-eye"><div id="fr-ring"></div><img src="{frame["eye"]["src"]}" alt="" /></div>'
+           if frame.get("eye") else "")
     footer = f"""      <!-- footer band: the logo, still -->
-      <div id="fr-footer">{f'<img id="fr-logo" src="{logo}" alt="" />' if logo else ""}</div>"""
+      <div id="fr-footer">{f'<img id="fr-logo" src="{logo}" alt="" />' if logo else ""}{eye}</div>"""
     return css, header, footer
 
 
@@ -914,7 +937,21 @@ def _frame_script(frame: dict, duration: float) -> str:
             break
         k += 1
         turns.append([round(t, 2), (k - 1) % len(slides), k % len(slides)])
-    return f"""
+    eye = frame.get("eye")
+    eye_js = ""
+    if eye and eye.get("levels"):
+        eye_js = f"""
+      // ---- the eye in the footer breathes with the voice: louder speech, bigger eye, a ring goes out ----
+      {{
+        const LV = {json.dumps(eye["levels"])}, ST = {eye.get("step", 0.1)};
+        LV.forEach((v, i) => tl.to("#fr-eye img", {{ scale: 1 + 0.16 * v, duration: ST, ease: "sine.inOut" }}, i * ST));
+        LV.forEach((v, i) => {{
+          if (v > 0.55 && (i === 0 || LV[i - 1] <= 0.55))
+            tl.fromTo("#fr-ring", {{ scale: 0.9, opacity: 0.85 }}, {{ scale: 1.45, opacity: 0, duration: 0.6, ease: "power1.out",
+              immediateRender: false }}, i * ST);
+        }});
+      }}"""
+    return eye_js + f"""
       // ---- frame header: taglines and header pictures take turns, each held long enough to read ----
       document.querySelectorAll(".fr-tag .fr-line").forEach((line) => {{
         const room = line.parentElement.clientWidth * 0.98;
