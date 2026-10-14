@@ -790,7 +790,7 @@ def _frame_markup(frame: dict, geo: dict, W: int, H: int) -> tuple[str, str, str
         top: 0;
         width: {W}px;
         height: {hh}px;
-        background: {frame.get("bg", "#fdfdfd")} url("{frame["art"]}") left center / {frame.get("art_size", "cover")} no-repeat;
+        background: {frame.get("bg", "#fdfdfd")} url("{frame["art"]}") {frame.get("art_pos", "left center")} / {frame.get("art_size", "cover")} no-repeat;
         z-index: 6;
       }}
       #fr-rule {{
@@ -837,9 +837,9 @@ def _frame_markup(frame: dict, geo: dict, W: int, H: int) -> tuple[str, str, str
         object-fit: cover;
         opacity: 0;
       }}
-      .fr-a {{ font-size: {round(hh * 0.19)}px; color: {frame.get("color", "#235f35")}; }}
-      .fr-q {{ font-size: {round(hh * 0.205)}px; color: {frame.get("accent", "#b8862b")}; }}
-      .fr-b {{ font-size: {round(hh * 0.15)}px; color: {frame.get("color", "#235f35")}; }}
+      .fr-a {{ font-size: {round(hh * 0.19 * frame.get("text_scale", 1))}px; color: {frame.get("color", "#235f35")}; }}
+      .fr-q {{ font-size: {round(hh * 0.205 * frame.get("text_scale", 1))}px; color: {frame.get("accent", "#b8862b")}; }}
+      .fr-b {{ font-size: {round(hh * 0.15 * frame.get("text_scale", 1))}px; color: {frame.get("color", "#235f35")}; }}
       #stage {{
         position: absolute;
         left: 0;
